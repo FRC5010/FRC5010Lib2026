@@ -185,3 +185,7 @@ compile_commands.json
 
 # Eclipse generated file for annotation processors
 .factorypath
+
+# Temporary YAGSL source extraction directories (inspection only, not part of project)
+/swervelib/
+/yagsl_src_tmp/
