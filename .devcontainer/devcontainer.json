@@ -1,0 +1,48 @@
+{
+  "name": "FRC5010Claude",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+
+  // Pre-warm Gradle's cache so the first build inside the container is fast.
+  // This downloads all vendordep JARs and WPILib native libs at container
+  // creation time rather than on the first `./gradlew test`.
+  "postCreateCommand": "chmod +x gradlew && ./gradlew dependencies --no-daemon -q",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Java language support
+        "redhat.java",
+        "vscjava.vscode-java-pack",
+        // Gradle build file support
+        "vscjava.vscode-gradle",
+        // WPILib (project tools, syntax highlighting; deploy button needs a
+        // local WPILib install on the actual laptop, not the container)
+        "wpilibsuite.vscode-wpilib"
+      ],
+      "settings": {
+        "java.compile.nullAnalysis.mode": "disabled",
+        "java.configuration.updateBuildConfiguration": "automatic"
+      }
+    }
+  },
+
+  // NT4 (NetworkTables 4) — AdvantageScope connects here for live sim data.
+  // NT3 legacy fallback and the WPILib web dashboard are forwarded too.
+  "forwardPorts": [5810, 5800, 1735],
+  "portsAttributes": {
+    "5810": {
+      "label": "NT4 – AdvantageScope live connection",
+      "onAutoForward": "notify"
+    },
+    "5800": {
+      "label": "NetworkTables web dashboard",
+      "onAutoForward": "silent"
+    },
+    "1735": {
+      "label": "NT3 legacy",
+      "onAutoForward": "silent"
+    }
+  }
+}
