@@ -71,6 +71,26 @@ public final class SwerveConstants {
   /** High-frequency odometry update rate in Hz (e.g., 100 for typical CAN, 250 for CANivore). */
   public final double odometryFrequencyHz;
 
+  // --- Physics simulation parameters ---
+  /**
+   * Total robot mass in kilograms, including bumpers and battery.
+   * Used by the IronMaple physics engine in SIM mode.
+   * Valid range: 10–80 kg (FRC robot weight limits; IronMaple enforces this).
+   */
+  public final double robotMassKg;
+  /**
+   * Bumper length in meters — full outside-to-outside dimension from front to back.
+   * Used by the IronMaple physics engine for collision geometry in SIM mode.
+   * Valid range: 0.5–1.5 m.
+   */
+  public final double bumperLengthMeters;
+  /**
+   * Bumper width in meters — full outside-to-outside dimension from left to right.
+   * Used by the IronMaple physics engine for collision geometry in SIM mode.
+   * Valid range: 0.5–1.5 m.
+   */
+  public final double bumperWidthMeters;
+
   // --- Derived geometry (computed once at construction) ---
   public final Translation2d[] moduleTranslations;
 
@@ -89,6 +109,9 @@ public final class SwerveConstants {
     this.backRightIds       = b.backRightIds;
     this.canBusName         = b.canBusName;
     this.odometryFrequencyHz = b.odometryFrequencyHz;
+    this.robotMassKg        = b.robotMassKg;
+    this.bumperLengthMeters = b.bumperLengthMeters;
+    this.bumperWidthMeters  = b.bumperWidthMeters;
 
     // Compute module positions relative to robot center.
     // Order matches WPILib convention: FL, FR, BL, BR.
@@ -131,6 +154,15 @@ public final class SwerveConstants {
       throw new IllegalArgumentException("backLeftIds must have at least [driveId, steerId]");
     if (backRightIds == null || backRightIds.length < 2)
       throw new IllegalArgumentException("backRightIds must have at least [driveId, steerId]");
+    if (robotMassKg < 10 || robotMassKg > 80)
+      throw new IllegalArgumentException(
+          "robotMassKg must be 10–80 kg (FRC weight limits), got: " + robotMassKg);
+    if (bumperLengthMeters < 0.5 || bumperLengthMeters > 1.5)
+      throw new IllegalArgumentException(
+          "bumperLengthMeters must be 0.5–1.5 m, got: " + bumperLengthMeters);
+    if (bumperWidthMeters < 0.5 || bumperWidthMeters > 1.5)
+      throw new IllegalArgumentException(
+          "bumperWidthMeters must be 0.5–1.5 m, got: " + bumperWidthMeters);
   }
 
   /** Fluent builder for SwerveConstants. */
@@ -149,6 +181,10 @@ public final class SwerveConstants {
     private int[] backRightIds        = {10, 11, 12};
     private String canBusName         = "";
     private double odometryFrequencyHz = 100.0;
+    // Physics simulation — defaults match IronMaple's DriveTrainSimulationConfig.Default()
+    private double robotMassKg        = 45.0;
+    private double bumperLengthMeters = 0.76;
+    private double bumperWidthMeters  = 0.76;
 
     public Builder trackWidthMeters(double v)     { trackWidthMeters = v; return this; }
     public Builder wheelBaseMeters(double v)      { wheelBaseMeters = v; return this; }
@@ -189,6 +225,23 @@ public final class SwerveConstants {
     public Builder canBusName(String v) { canBusName = v; return this; }
     /** High-frequency odometry rate in Hz (100 for standard CAN, 250 for CANivore). */
     public Builder odometryFrequencyHz(double v) { odometryFrequencyHz = v; return this; }
+
+    /**
+     * Total robot mass in kilograms, including bumpers and battery (10–80 kg).
+     * Passed to the IronMaple physics engine so the sim reflects actual robot weight.
+     * Default: 45 kg.
+     */
+    public Builder robotMassKg(double v) { robotMassKg = v; return this; }
+    /**
+     * Full bumper length in meters, front to back outside-to-outside (0.5–1.5 m).
+     * Used for physics collision geometry. Default: 0.76 m (~30 in).
+     */
+    public Builder bumperLengthMeters(double v) { bumperLengthMeters = v; return this; }
+    /**
+     * Full bumper width in meters, left to right outside-to-outside (0.5–1.5 m).
+     * Used for physics collision geometry. Default: 0.76 m (~30 in).
+     */
+    public Builder bumperWidthMeters(double v) { bumperWidthMeters = v; return this; }
 
     public SwerveConstants build() {
       SwerveConstants c = new SwerveConstants(this);

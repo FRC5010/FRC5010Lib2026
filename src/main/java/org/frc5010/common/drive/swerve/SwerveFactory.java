@@ -1,5 +1,6 @@
 package org.frc5010.common.drive.swerve;
 
+import static edu.wpi.first.units.Units.Kilograms;
 import static edu.wpi.first.units.Units.Meters;
 
 import edu.wpi.first.math.geometry.Pose2d;
@@ -95,6 +96,8 @@ public class SwerveFactory {
   private static AkitSwerveDrive buildWithPhysicsSim(SwerveConstants c) {
     DriveTrainSimulationConfig simConfig =
         DriveTrainSimulationConfig.Default()
+            .withRobotMass(Kilograms.of(c.robotMassKg))
+            .withBumperSize(Meters.of(c.bumperLengthMeters), Meters.of(c.bumperWidthMeters))
             .withTrackLengthTrackWidth(
                 Meters.of(c.wheelBaseMeters), Meters.of(c.trackWidthMeters));
 

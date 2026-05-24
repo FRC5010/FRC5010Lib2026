@@ -108,4 +108,52 @@ class SwerveConstantsTest {
     // Default builder should produce a working sim config out of the box
     assertDoesNotThrow(() -> new SwerveConstants.Builder().build());
   }
+
+  // --- Physics simulation fields ---
+
+  @Test
+  void physicsFieldsHaveCorrectDefaults() {
+    SwerveConstants c = new SwerveConstants.Builder().build();
+    assertEquals(45.0,  c.robotMassKg,        1e-6, "default robot mass");
+    assertEquals(0.76,  c.bumperLengthMeters,  1e-6, "default bumper length");
+    assertEquals(0.76,  c.bumperWidthMeters,   1e-6, "default bumper width");
+  }
+
+  @Test
+  void customPhysicsFieldsAreStored() {
+    SwerveConstants c = validBuilder()
+        .robotMassKg(60.0)
+        .bumperLengthMeters(0.9)
+        .bumperWidthMeters(0.85)
+        .build();
+    assertEquals(60.0,  c.robotMassKg,        1e-6);
+    assertEquals(0.9,   c.bumperLengthMeters,  1e-6);
+    assertEquals(0.85,  c.bumperWidthMeters,   1e-6);
+  }
+
+  @Test
+  void robotMassBelowMinThrows() {
+    // IronMaple lower bound is 10 kg
+    assertThrows(IllegalArgumentException.class,
+        () -> validBuilder().robotMassKg(9.9).build());
+  }
+
+  @Test
+  void robotMassAboveMaxThrows() {
+    // IronMaple upper bound is 80 kg (FRC weight limit with bumpers is ~68 kg)
+    assertThrows(IllegalArgumentException.class,
+        () -> validBuilder().robotMassKg(80.1).build());
+  }
+
+  @Test
+  void bumperTooSmallThrows() {
+    assertThrows(IllegalArgumentException.class,
+        () -> validBuilder().bumperLengthMeters(0.49).build());
+  }
+
+  @Test
+  void bumperTooLargeThrows() {
+    assertThrows(IllegalArgumentException.class,
+        () -> validBuilder().bumperWidthMeters(1.51).build());
+  }
 }
