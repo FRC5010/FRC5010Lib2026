@@ -42,14 +42,14 @@ frc.robot.RobotContainer (concrete — extends SwerveRobotContainer)
 
 ---
 
-## Test pyramid (48/48 passing as of 2026-05-25)
+## Test pyramid (59/59 passing as of 2026-05-26)
 
 | Layer | Class | Factory method | IO impl | Tests |
 |-------|-------|----------------|---------|-------|
 | 1 — unit | `SwerveConstantsTest`, `SwerveFactoryModeTest`, `TunableGainsTest` | — | — | 33 |
-| 2 — subsystem sim | `AkitSwerveDriveTest` | `buildWithoutPhysics()` | `ModuleIOSim` | 8 |
-| 3 — physics integration | `AkitSwerveDriveSimPhysicsTest` | `build()` | `ModuleIOSimPhysics` | 7 |
-| 4 — visual / interactive | `RobotContainer` visual-test sequence | `build()` | `ModuleIOSimPhysics` | visual |
+| 2 — subsystem sim | `AkitSwerveDriveTest`, `VisionSubsystemTest` | `buildWithoutPhysics()` / stub IO | `ModuleIOSim` / `VisionIO` stub | 13 |
+| 3 — physics integration | `AkitSwerveDriveSimPhysicsTest`, `VisionSimIntegrationTest` | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` | 10 |
+| 4 — visual / interactive | `RobotContainer` visual-test sequence (6 steps incl. vision correction) | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` | visual |
 
 Layers 1–3 extend `SimTestBase` (deterministic FPGA clock via `SimHooks`).
 Layer 4 runs as a full robot program via `./gradlew simulateJava`; it is **never** in CI.
@@ -62,10 +62,14 @@ Layer 4 runs as a full robot program via `./gradlew simulateJava`; it is **never
 drive.runVelocity(speeds);   // 1. queue voltage commands to physics controllers
 drive.simulationPeriodic();  // 2. advance dyn4j world: 5 sub-ticks × 4 ms = 20 ms
 drive.periodic();            // 3. read updated module caches → pose estimator
-stepOneCycle();              // 4. advance FPGA clock 20 ms
+// If vision is present (Layer 3 vision tests):
+vision.periodic();           // 4. update VisionIOSim → call addVisionMeasurement
+stepOneCycle();              // 5. advance FPGA clock 20 ms
 ```
 
 **Wrong order = stale data.** `periodic()` reads IronMaple module position caches. Those caches are only refreshed by `simulationPeriodic()` sub-ticks. If you call `periodic()` first, it reads the zero-filled initial caches and no motion appears.
+
+`vision.periodic()` must come *after* `drive.simulationPeriodic()` and `drive.periodic()` so `VisionIOSim` calls `visionSim.update()` with the freshly-updated physics pose.
 
 Layer 2 tests (`buildWithoutPhysics`) don't need `simulationPeriodic()` — `ModuleIOSim.updateInputs()` calls `driveSim.update(0.02)` internally.
 
@@ -160,6 +164,8 @@ return new RealRobotProfile();  // default for VSCode sim
 - **REAL**: wire hardware IO (`GyroIOPigeon2`, `ModuleIOTalonFXReal`, …) — must be done manually; factory throws for `TALON_FX` in REAL mode by design.
 - **SIM**: call `SwerveFactory.build(CONSTANTS, BLUE_START)` — IronMaple uses the real robot's mass/geometry for accurate physics even in simulation.
 
+`RobotProfile.createVision(drive)` returns `null` by default. Override in the team's profile to wire cameras — `SwerveRobotContainer` calls it automatically after `createDrive()` and stores the result in the `protected Vision vision` field. `SimRobotProfile` inherits the default null (lightweight CI profile, no cameras).
+
 See `/new-robot-profile` for the step-by-step wiring guide.
 
 ### Gradle simulation flags
@@ -230,9 +236,18 @@ AdvantageKit's annotation processor generates logging code that expects primitiv
 | Odometry timestamp helper | `src/main/java/org/frc5010/common/drive/swerve/akit/util/PhoenixUtil.java` |
 | Sim test base class | `src/test/java/org/frc5010/common/util/SimTestBase.java` |
 | Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/AkitSwerveDriveTest.java` |
-| Layer 3 tests | `src/test/java/org/frc5010/common/subsystem/AkitSwerveDriveSimPhysicsTest.java` |
+| Layer 3 tests (drive) | `src/test/java/org/frc5010/common/subsystem/AkitSwerveDriveSimPhysicsTest.java` |
+| Layer 3 tests (vision) | `src/test/java/org/frc5010/common/subsystem/VisionSimIntegrationTest.java` |
 | Layer 4 robot program | `src/main/java/frc/robot/Robot.java`, `RobotContainer.java` |
 | IronMaple sources (read-only reference) | `yagsl_src_tmp/swervelib/simulation/ironmaple/` |
+| Vision subsystem | `src/main/java/org/frc5010/common/vision/Vision.java` |
+| Vision IO interface + @AutoLog inputs | `src/main/java/org/frc5010/common/vision/VisionIO.java` |
+| Vision factory (REAL/SIM/REPLAY wiring) | `src/main/java/org/frc5010/common/vision/VisionFactory.java` |
+| Camera configuration (Builder pattern) | `src/main/java/org/frc5010/common/vision/CameraConfig.java` |
+| PhotonVision IO (REAL) | `src/main/java/org/frc5010/common/vision/VisionIOPhoton.java` |
+| Limelight IO via YALL (REAL) | `src/main/java/org/frc5010/common/vision/VisionIOLimelight.java` |
+| Vision sim IO (extends VisionIOPhoton) | `src/main/java/org/frc5010/common/vision/VisionIOSim.java` |
+| Vision Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/VisionSubsystemTest.java` |
 
 ---
 
@@ -278,13 +293,82 @@ See `/diagnose-log` slash command for the full agent workflow.
 
 **Before committing any change to the common library (`src/main/java/org/frc5010/common/...`):**
 
-1. **Run the full test suite** — `.\gradlew.bat test` — all 48 tests must pass. Never weaken an assertion to force a pass; fix the root cause.
-2. Update any affected slash command in `.claude/commands/` (e.g. `new-sim-test`, `new-robot-profile`, `diagnose-log`).
+1. **Run the full test suite** — `.\gradlew.bat test` — all 59 tests must pass. Never weaken an assertion to force a pass; fix the root cause.
+2. Update any affected slash command in `.claude/commands/` (e.g. `new-sim-test`, `new-robot-profile`, `diagnose-log`, `validate-replay`).
 3. Update the relevant `docs/` page (`configuration`, `architecture`, `testing`, `simulation`, or `robot-profiles`).
 4. Update `CLAUDE.md` if a gotcha, file location, or architecture section is no longer accurate.
 5. If a new reusable pattern was introduced, consider whether it warrants a new slash command or docs page.
+6. **For non-trivial logging changes** — any change to `@AutoLog` fields, `Robot.java` data receivers, or `LogSummary.java` — validate replay fidelity:
+   ```powershell
+   # 1. Produce a live log (Glass opens, auto-closes when test completes)
+   .\gradlew.bat simulateJava -PvisualTest -PvisualTestExit
+   # 2. Replay it headlessly; exits automatically when autonomous completes
+   .\gradlew.bat simulateJava -Plog=logs/<your-log>.wpilog -PvisualTest -PreplayExit
+   # 3. Check the replay log for anomalies vs the live log
+   .\gradlew.bat replayValidate
+   ```
+   See `/validate-replay` for the full workflow and how to interpret the output.
 
 The code, the tests, the docs, and the agent skills must stay in sync — stale guidance causes the next contributor to repeat solved problems.
+
+---
+
+## Vision architecture
+
+### Overview
+
+The vision subsystem follows the same AdvantageKit IO pattern as the drive subsystem.
+
+```
+CameraConfig[] (one per camera, Builder pattern)
+        │
+        ▼
+VisionFactory.build(consumer, poseSupplier, headingSupplier, configs)
+        │
+        ├─ REAL  → VisionIOPhoton  (PhotonVision, multi-tag PnP)
+        │          VisionIOLimelight (YALL, MegaTag 1 + MegaTag 2)
+        ├─ SIM   → VisionIOSim    (extends VisionIOPhoton, PhotonCameraSim)
+        │          (Limelight → no-op; no PhotonVision sim equivalent)
+        └─ REPLAY→ no-op VisionIO (AKit replays logged inputs automatically)
+                │
+                ▼
+         Vision (SubsystemBase)
+          ├─ filters bad observations (ambiguity, Z error, field boundaries)
+          ├─ scales std devs: distance²/tagCount × stdDevFactor
+          │    MegaTag 2: ½ linear, 1e6× angular (heading locked)
+          └─ calls consumer (drive::addVisionMeasurement) for accepted poses
+```
+
+### Key design decisions
+
+- **`@AutoLog` parallel arrays** — `VisionIOInputs` uses parallel primitive/struct arrays (`double[]`, `Pose3d[]`, `int[]`) instead of a `PoseObservation[]` record. AdvantageKit's annotation processor only serializes WPILib struct types; custom records cause the field to be typed `Object[]` and break all accessors in `Vision.periodic()`.
+- **`VisionIO.updateInputs` is `default`** — allows `new VisionIO() {}` no-op for REPLAY/Limelight-in-SIM without subclassing. Consequence: `VisionIO` is NOT a `@FunctionalInterface`; use anonymous inner classes (not lambdas) in tests.
+- **`AprilTagFields.kDefaultField`** — always `k2026RebuiltWelded`. Using `kDefaultField` means the factory tracks future season defaults automatically.
+- **`poseSupplier` must be the TRUE physics position** — `VisionIOSim` uses this supplier to place the simulated camera. Always pass `() -> drive.getSimulatedPose().orElse(drive.getPose())`, NOT `drive::getPose`. If you use the estimator pose and then inject an estimator error (e.g. push-correction test), the camera sim will be moved to the wrong position and stop detecting tags — breaking the very correction you're testing.
+- **MegaTag 1 via NT queue** — `megatag1Subscriber.readQueue()` drains every frame since the last cycle so no poses are dropped between 20 ms loops.
+- **Orientation via YALL `withRobotOrientation`** — `limelight.getSettings().withRobotOrientation(new Orientation3d(rot3d, zero))` sets the NT key `robot_orientation_set` and flushes; the Limelight uses this to lock its heading for MegaTag 2.
+
+### Usage example
+
+```java
+Vision vision = VisionFactory.build(
+    drive::addVisionMeasurement,
+    () -> drive.getSimulatedPose().orElse(drive.getPose()),  // TRUE physics position, not estimator
+    drive::getRotation,
+    new CameraConfig[] {
+        new CameraConfig.Builder("photon_front")
+            .robotToCamera(FRONT_CAM_TRANSFORM)
+            .backend(CameraConfig.Backend.PHOTON)
+            .build(),
+        new CameraConfig.Builder("limelight")
+            .robotToCamera(REAR_CAM_TRANSFORM)
+            .backend(CameraConfig.Backend.LIMELIGHT)
+            .stdDevFactor(0.8)   // trust this camera more
+            .build()
+    });
+```
+
+See `/new-vision-camera` for the step-by-step wiring guide.
 
 ---
 
@@ -293,3 +377,5 @@ The code, the tests, the docs, and the agent skills must stay in sync — stale 
 - `/new-sim-test` — step-by-step playbook for adding a Layer 2 or Layer 3 sim test (includes team-specific test location)
 - `/new-robot-profile` — step-by-step guide for wiring a real robot's hardware IO into `RealRobotProfile`
 - `/diagnose-log` — agent workflow for reading `.wpilog` files, interpreting anomaly flags, replay, and performance comparison
+- `/new-vision-camera` — step-by-step guide for adding a PhotonVision or Limelight camera to the Vision subsystem
+- `/validate-replay` — validate replay fidelity after non-trivial logging changes (produce log → replay → check anomalies)

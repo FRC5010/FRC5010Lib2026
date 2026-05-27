@@ -42,8 +42,8 @@ The output has four sections:
 
 ## Step 2 — Interpret anomaly flags
 
-### Loop overrun (`EpochTimeMicros > 25 ms`)
-The robot loop took longer than one 20 ms cycle. Causes:
+### Loop overrun (`FullCycleMS > 25 ms`)
+The robot loop took longer than one 20 ms cycle. `logSummary` reads this from `/RealOutputs/LoggedRobot/FullCycleMS`. Causes:
 - Heavy computation added to `periodic()` (pathfinding, vision processing)
 - Too many subsystems registered with `CommandScheduler`
 - GC pause (rare in WPILib — check if running in debug mode)
@@ -84,10 +84,20 @@ For headless/agent use, all `double` min/max/count values are in the Numeric Sta
 If you changed the code and want to verify the fix against a previously captured failure:
 
 ```powershell
-.\gradlew.bat replayWatch
+.\gradlew.bat simulateJava "-Plog=logs\FRC_20260525_143022.wpilog"
 ```
 
-Select the original log in the file picker. The robot code re-runs at full speed and writes `<original>_sim.wpilog`. Open both files in AdvantageScope and compare the same signal — discrepancies reveal where the code diverges from the recorded behavior.
+The robot code re-runs at full speed (no GUI, no real-time pacing) and writes `<original>_sim.wpilog` alongside the source log. The `-Plog` flag automatically disables the HAL sim GUI and DriverStation extensions — do not combine with `-PvisualTest`.
+
+The replay log contains both `RealOutputs/` (replayed from the original) and `ReplayOutputs/` (new timing from this replay run). Compare drive signals between the two logs to find where code diverges:
+
+```powershell
+.\gradlew.bat logSummary "-PlogFile=logs\baseline.wpilog"     > before.txt
+# ... make code change ...
+.\gradlew.bat simulateJava "-Plog=logs\baseline.wpilog"
+.\gradlew.bat logSummary "-PlogFile=logs\baseline_sim.wpilog" > after.txt
+Compare-Object (Get-Content before.txt) (Get-Content after.txt)
+```
 
 Replay mode is also how you validate that a new algorithm improvement (e.g., better odometry, smoother heading control) produces better output on a known input.
 

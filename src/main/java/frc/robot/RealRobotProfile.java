@@ -3,8 +3,13 @@ package frc.robot;
 import static edu.wpi.first.units.Units.Inches;
 import static edu.wpi.first.units.Units.Pounds;
 
+import edu.wpi.first.apriltag.AprilTagFieldLayout;
+import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Rotation3d;
+import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.wpilibj.RobotBase;
 import org.frc5010.common.drive.swerve.RobotProfile;
 import org.frc5010.common.drive.swerve.SwerveConstants;
@@ -12,6 +17,9 @@ import org.frc5010.common.drive.swerve.SwerveConstants.GyroType;
 import org.frc5010.common.drive.swerve.SwerveConstants.ModuleType;
 import org.frc5010.common.drive.swerve.SwerveFactory;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import org.frc5010.common.vision.CameraConfig;
+import org.frc5010.common.vision.Vision;
+import org.frc5010.common.vision.VisionFactory;
 
 /**
  * Robot profile for the real competition robot.
@@ -79,5 +87,42 @@ public class RealRobotProfile extends RobotProfile {
   @Override
   public Pose2d getBlueAllianceStartPose() {
     return BLUE_START;
+  }
+
+  // Front-facing camera: 30 cm forward, 50 cm up, aligned with robot heading.
+  private static final Transform3d FRONT_CAM_TRANSFORM = new Transform3d(
+      new Translation3d(0.30, 0.0, 0.50), new Rotation3d());
+
+  /**
+   * Wires the {@code photon_front} PhotonVision camera and publishes static AprilTag poses to
+   * the drive's Field2d so Glass renders AT*.png overlays for each tag.
+   *
+   * <p>The pose supplier uses the TRUE physics position ({@code getSimulatedPose}) rather than
+   * the estimator so that injected estimator errors (e.g. push-correction test) do not prevent
+   * the camera sim from detecting tags. See CLAUDE.md Vision architecture section.
+   */
+  @Override
+  public Vision createVision(AkitSwerveDrive drive) {
+    AprilTagFieldLayout layout = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
+
+    Vision vision = VisionFactory.build(
+        drive::addVisionMeasurement,
+        () -> drive.getSimulatedPose().orElse(drive.getPose()),
+        drive::getRotation,
+        new CameraConfig[] {
+            new CameraConfig.Builder("photon_front")
+                .robotToCamera(FRONT_CAM_TRANSFORM)
+                .backend(CameraConfig.Backend.PHOTON)
+                .build()
+        });
+
+    // Publish each tag's 2D pose as a named Field2d object so Glass draws the
+    // AT*.png overlays configured in simgui.json.
+    layout.getTags().forEach(tag ->
+        drive.getField2d()
+             .getObject("Field Tag " + tag.ID)
+             .setPose(tag.pose.toPose2d()));
+
+    return vision;
   }
 }

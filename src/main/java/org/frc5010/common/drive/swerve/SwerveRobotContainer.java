@@ -15,6 +15,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandJoystick;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import org.frc5010.common.vision.Vision;
 
 /**
  * Base class for a swerve-drive robot container.
@@ -62,6 +63,13 @@ public abstract class SwerveRobotContainer {
   /** The swerve drive subsystem. Available to subclasses for commands and bindings. */
   protected final AkitSwerveDrive drive;
 
+  /**
+   * Vision subsystem. Set this in a subclass constructor after calling {@code super(...)} to
+   * enable vision-based pose correction and the visual-test push-correction step (Step 6).
+   * Leave {@code null} to skip vision entirely.
+   */
+  protected Vision vision = null;
+
   // Stored when constructed from a RobotProfile; null when constructed from a bare drive.
   private final RobotProfile profile;
 
@@ -86,6 +94,7 @@ public abstract class SwerveRobotContainer {
   protected SwerveRobotContainer(RobotProfile profile, int controllerPort) {
     this.profile  = profile;
     this.drive    = profile.createDrive();
+    this.vision   = profile.createVision(this.drive);
     this.joystick = new CommandJoystick(controllerPort);
     configureBindings();
   }
@@ -159,7 +168,7 @@ public abstract class SwerveRobotContainer {
    */
   public Command getAutonomousCommand() {
     if (Boolean.getBoolean("visualTest")) {
-      return SwerveVisualTest.build(drive, this::getAllianceStartPose);
+      return SwerveVisualTest.build(drive, vision, this::getAllianceStartPose);
     }
     return null;
   }

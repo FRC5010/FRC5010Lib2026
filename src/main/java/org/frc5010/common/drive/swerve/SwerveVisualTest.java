@@ -3,12 +3,14 @@ package org.frc5010.common.drive.swerve;
 import java.util.function.Supplier;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import org.frc5010.common.vision.Vision;
 
 /**
  * Reusable Layer 4 visual-test command sequence for {@link AkitSwerveDrive}.
@@ -40,6 +42,9 @@ import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
  *       opponent's wall (correct direction for the detected alliance)</li>
  *   <li>Drive into the blue wall at 1.5 m/s for 5 s — IronMaple physics body must be
  *       between 0 m and 1.5 m (wall contacted, not penetrated)</li>
+ *   <li>(Vision only) Push-correction: teleport physics + estimator to (2 m, 4 m, 0°),
+ *       let the camera warm up, inject a 3 m X error into the estimator, then wait 4 s
+ *       for vision to pull the estimate back within 1.5 m of the true position.</li>
  * </ol>
  */
 public final class SwerveVisualTest {
@@ -47,14 +52,15 @@ public final class SwerveVisualTest {
   private SwerveVisualTest() {}
 
   /**
-   * Builds the five-step visual test command sequence.
+   * Builds the visual test command sequence.
    *
    * @param drive             the swerve drive subsystem under test
+   * @param vision            the vision subsystem, or {@code null} to skip Step 6
    * @param allianceStartPose supplies the alliance-correct starting pose; called at
    *                          schedule time so the alliance is already resolved
    * @return a {@link Command} that runs the full sequence and prints results
    */
-  public static Command build(AkitSwerveDrive drive, Supplier<Pose2d> allianceStartPose) {
+  public static Command build(AkitSwerveDrive drive, Vision vision, Supplier<Pose2d> allianceStartPose) {
     boolean[] allPassed = {true};
     double[]  xSnapshot = {0.0};  // step 4: x at start of alliance-direction drive
 
@@ -181,7 +187,16 @@ public final class SwerveVisualTest {
             () -> drive.runVelocityFieldRelative(new ChassisSpeeds(-1.5, 0.0, 0.0)), drive
         ).withTimeout(5.0),
         Commands.runOnce(() -> {
-          double physX    = drive.getSimulatedPose().map(p -> p.getX()).orElse(-999.0);
+          var physPose = drive.getSimulatedPose();
+          if (physPose.isEmpty()) {
+            // Physics body unavailable (REPLAY mode — no IronMaple running).
+            // Skip rather than fail so OVERALL reflects only testable steps.
+            System.out.printf(
+                "[VISUAL TEST] Boundary:   SKIP  (physics body unavailable in REPLAY mode)%n");
+            System.out.flush();
+            return;
+          }
+          double physX    = physPose.get().getX();
           double actualVx = drive.getSimulatedChassisSpeeds()
               .map(s -> s.vxMetersPerSecond).orElse(Double.NaN);
           boolean reachedWall    = physX <= 1.5;
@@ -195,6 +210,44 @@ public final class SwerveVisualTest {
           System.out.flush();
         }),
 
+        // --- Step 6: Vision push-correction (only when a Vision subsystem is wired) ---
+        // Place the physics body + estimator at (2 m, 4 m, 0°) so the front camera
+        // looks toward +X, where the Blue-side Reef tags are at roughly 2–4 m range.
+        // After 2 s of tag warmup, inject a 3 m X error into the estimator only
+        // (physics body stays at the true position). Vision should pull the estimate
+        // back within 1.5 m of the truth within 4 s.
+        vision != null
+            ? Commands.sequence(
+                Commands.runOnce(() -> {
+                  System.out.println("[VISUAL TEST] Step 6: vision push-correction test...");
+                  System.out.flush();
+                }),
+                Commands.runOnce(() -> drive.stop(), drive),
+                Commands.runOnce(
+                    () -> drive.resetSimulationPose(new Pose2d(2.0, 4.0, Rotation2d.kZero)),
+                    drive),
+                Commands.waitSeconds(2.0),  // let camera detect tags and warm up the estimator
+                Commands.runOnce(() -> {
+                  // Inject a 3 m X error into the estimator only; physics stays at truth.
+                  drive.setPose(new Pose2d(5.0, 4.0, Rotation2d.kZero));
+                  System.out.printf(
+                      "[VISUAL TEST]   Error injected: estimator set to x=5.0 m (truth: x=2.0 m)%n");
+                  System.out.flush();
+                }),
+                Commands.waitSeconds(4.0),  // vision correction window
+                Commands.runOnce(() -> {
+                  double estimatedX = drive.getPose().getX();
+                  double trueX      = drive.getSimulatedPose().map(Pose2d::getX).orElse(2.0);
+                  double error      = Math.abs(estimatedX - trueX);
+                  boolean ok        = error < 1.5;
+                  if (!ok) allPassed[0] = false;
+                  System.out.printf(
+                      "[VISUAL TEST] Vision:     %-4s  estimated_x=%.3f m  true_x=%.3f m  error=%.3f m%n",
+                      ok ? "PASS" : "FAIL", estimatedX, trueX, error);
+                  System.out.flush();
+                }))
+            : Commands.none(),
+
         // --- Final stop + summary -----------------------------------------------
         Commands.runOnce(() -> drive.stop(), drive),
         Commands.runOnce(() -> {
@@ -202,7 +255,12 @@ public final class SwerveVisualTest {
           System.out.printf( "[VISUAL TEST] OVERALL: %s%n", allPassed[0] ? "PASS" : "FAIL");
           System.out.println("[VISUAL TEST] ========================================");
           System.out.flush();
-        })
+        }),
+        // Log-flush buffer: wait 2 s after printing the summary so the AdvantageKit async
+        // writer has time to flush the summary cycle to disk before auto-exit fires.
+        // Without this, the OVERALL cycle may be missing from the source log and will not
+        // appear when the log is replayed.
+        Commands.waitSeconds(2.0)
     );
   }
 }

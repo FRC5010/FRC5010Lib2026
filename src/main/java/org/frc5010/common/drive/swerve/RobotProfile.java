@@ -5,6 +5,7 @@ import static edu.wpi.first.units.Units.Meters;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.units.measure.Distance;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import org.frc5010.common.vision.Vision;
 
 /**
  * Encapsulates everything a {@link SwerveRobotContainer} needs to know about a specific robot
@@ -85,6 +86,20 @@ public abstract class RobotProfile {
    * correct pose for either alliance. The Red-alliance pose is derived automatically.
    */
   public abstract Pose2d getBlueAllianceStartPose();
+
+  /**
+   * Creates the {@link Vision} subsystem for this robot profile.
+   *
+   * <p>Returns {@code null} by default (no cameras configured). Override in real-robot profiles
+   * to wire cameras via {@link org.frc5010.common.vision.VisionFactory}. Called by
+   * {@link SwerveRobotContainer} immediately after {@link #createDrive()}, so the drive is
+   * available for the pose supplier and {@code addVisionMeasurement} consumer.
+   *
+   * @param drive the fully-wired drive subsystem returned by {@link #createDrive()}
+   */
+  public Vision createVision(AkitSwerveDrive drive) {
+    return null;
+  }
 
   /**
    * Returns the field length for this year's game.

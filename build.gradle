@@ -85,20 +85,36 @@ test {
 }
 
 // Simulation configuration (e.g. environment variables).
-wpi.sim.addGui().defaultEnabled = true
-wpi.sim.addDriverstation()
+// Replay mode (-Plog=...) must run without HAL sim extensions — AdvantageKit
+// enforces this and throws if the GUI or DriverStation extensions are present.
+if (!project.hasProperty('log')) {
+    wpi.sim.addGui().defaultEnabled = true
+    wpi.sim.addDriverstation()
+}
 
 // Forward simulation flags to the JVM as system properties so Robot code can read them.
 // Usage:
-//   ./gradlew simulateJava -PvisualTest   → runs Layer 4 automated visual-test sequence
-//   ./gradlew simulateJava -PtestSim      → uses SimRobotProfile (lightweight test robot, no real CAN IDs)
-// Default (no flag): uses RealRobotProfile with IronMaple physics — matches VSCode "Simulate Robot Code".
+//   ./gradlew simulateJava -PvisualTest                       → Layer 4 visual-test sequence (interactive)
+//   ./gradlew simulateJava -PvisualTest -PvisualTestExit      → visual test + auto-exit when done
+//   ./gradlew simulateJava -PtestSim                          → SimRobotProfile (lightweight)
+//   ./gradlew simulateJava -Plog=logs/foo.wpilog              → replay mode (headless, no GUI)
+//   ./gradlew simulateJava -Plog=... -PvisualTest -PreplayExit→ replay + auto-exit when done
+// Default (no flag): RealRobotProfile + IronMaple physics — matches VSCode "Simulate Robot Code".
 tasks.withType(JavaExec).configureEach {
     if (project.hasProperty('visualTest')) {
         systemProperty 'visualTest', 'true'
     }
+    if (project.hasProperty('visualTestExit')) {
+        systemProperty 'visualTestExit', 'true'
+    }
     if (project.hasProperty('testSim')) {
         systemProperty 'testSim', 'true'
+    }
+    if (project.hasProperty('log')) {
+        systemProperty 'log', project.log
+    }
+    if (project.hasProperty('replayExit')) {
+        systemProperty 'replayExit', 'true'
     }
 }
 
@@ -124,9 +140,9 @@ task(replayWatch, type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
 }
 
-// Analyze a .wpilog file and print a summary of key swerve signals.
+// Analyze a .wpilog file and print a summary of key swerve/vision signals.
 // Usage:
-//   .\gradlew.bat logSummary                          # most recent log in logs/
+//   .\gradlew.bat logSummary                           # most recent log in logs/
 //   .\gradlew.bat logSummary -PlogFile=logs/foo.wpilog # specific file
 task(logSummary, type: JavaExec) {
     group = 'FRC5010'
@@ -135,6 +151,36 @@ task(logSummary, type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     if (project.hasProperty('logFile')) {
         args = [project.logFile]
+    }
+}
+
+// Run logSummary on the most recent replay (_sim.wpilog) in logs/.
+// Usage: .\gradlew.bat replayValidate
+// Typical workflow:
+//   1. .\gradlew.bat simulateJava -PvisualTest              # produce a live log
+//   2. .\gradlew.bat simulateJava -Plog=<log> -PreplayExit  # replay it headlessly
+//   3. .\gradlew.bat replayValidate                         # check the replay log
+task(replayValidate, type: JavaExec) {
+    group = 'FRC5010'
+    description = 'Run logSummary on the most recent replay (_sim.wpilog) in logs/'
+    mainClass = "org.frc5010.common.util.LogSummary"
+    classpath = sourceSets.main.runtimeClasspath
+    doFirst {
+        def logsDir = file('logs')
+        if (!logsDir.isDirectory()) {
+            throw new GradleException(
+                "logs/ directory not found — run the simulation first:\n" +
+                "  .\\gradlew.bat simulateJava -PvisualTest")
+        }
+        def latest = logsDir.listFiles()
+            .findAll { it.name.endsWith('_sim.wpilog') }
+            .max { it.lastModified() }
+        if (!latest) {
+            throw new GradleException(
+                "No _sim.wpilog found in logs/ — run replay first:\n" +
+                "  .\\gradlew.bat simulateJava -Plog=<log> -PvisualTest -PreplayExit")
+        }
+        args = [latest.absolutePath]
     }
 }
 

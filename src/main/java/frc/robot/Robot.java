@@ -16,6 +16,13 @@ import org.littletonrobotics.junction.wpilog.WPILOGWriter;
 public class Robot extends LoggedRobot {
   private Command m_autonomousCommand;
   private final RobotContainer m_robotContainer;
+  // When true, System.exit(0) is called after AUTO_EXIT_DELAY_CYCLES extra cycles once the
+  // autonomous command finishes. The delay lets AdvantageKit flush the final cycle's outputs
+  // to disk so the last few log frames are available for replay.
+  // Set via -PreplayExit (REPLAY mode) or -PvisualTestExit (SIM mode, visual test run).
+  private boolean autoExit = false;
+  private int     autoExitCountdown = -1;
+  private static final int AUTO_EXIT_DELAY_CYCLES = 5;
 
   public Robot() {
     // AdvantageKit Logger setup — must come before Logger.start() and before
@@ -28,22 +35,25 @@ public class Robot extends LoggedRobot {
       Logger.addDataReceiver(new WPILOGWriter());
       Logger.addDataReceiver(new NT4Publisher());
       RobotMode.set(Mode.REAL);
+    } else if (System.getProperty("log") != null || System.getenv("AKIT_LOG_PATH") != null) {
+      // REPLAY mode: only when the log path is explicitly provided via -Dlog=<path>
+      // (Gradle -Plog) or AKIT_LOG_PATH env var (replayWatch / AdvantageScope).
+      // Read the path directly — findReplayLog() falls through to a stdin prompt
+      // when AdvantageScope is not connected, which crashes in headless Gradle runs.
+      String replayLog = System.getProperty("log");
+      if (replayLog == null) replayLog = System.getenv("AKIT_LOG_PATH");
+      RobotMode.set(Mode.REPLAY);
+      setUseTiming(false); // run as fast as possible, not real-time
+      autoExit = Boolean.getBoolean("replayExit");
+      Logger.setReplaySource(new WPILOGReader(replayLog));
+      Logger.addDataReceiver(
+          new WPILOGWriter(LogFileUtil.addPathSuffix(replayLog, "_sim")));
     } else {
-      String replayLog = LogFileUtil.findReplayLog();
-      if (replayLog != null) {
-        // REPLAY mode: re-run robot code against a previously recorded log.
-        // Run via: .\gradlew.bat replayWatch (select log in the UI picker)
-        RobotMode.set(Mode.REPLAY);
-        setUseTiming(false); // run as fast as possible, not real-time
-        Logger.setReplaySource(new WPILOGReader(replayLog));
-        Logger.addDataReceiver(
-            new WPILOGWriter(LogFileUtil.addPathSuffix(replayLog, "_sim")));
-      } else {
-        // SIM mode: write log to logs/ for later analysis and publish over NT4.
-        Logger.addDataReceiver(new WPILOGWriter("logs"));
-        Logger.addDataReceiver(new NT4Publisher());
-        RobotMode.set(Mode.SIM);
-      }
+      // SIM mode: write log to logs/ for later analysis and publish over NT4.
+      Logger.addDataReceiver(new WPILOGWriter("logs"));
+      Logger.addDataReceiver(new NT4Publisher());
+      RobotMode.set(Mode.SIM);
+      autoExit = Boolean.getBoolean("visualTestExit");
     }
 
     Logger.start();
@@ -75,7 +85,20 @@ public class Robot extends LoggedRobot {
   }
 
   @Override
-  public void autonomousPeriodic() {}
+  public void autonomousPeriodic() {
+    if (autoExit && m_autonomousCommand != null
+        && !CommandScheduler.getInstance().isScheduled(m_autonomousCommand)) {
+      if (autoExitCountdown < 0) {
+        autoExitCountdown = AUTO_EXIT_DELAY_CYCLES;
+      } else if (autoExitCountdown == 0) {
+        System.out.println("[AUTO EXIT] Autonomous command complete — exiting.");
+        System.out.flush();
+        System.exit(0);
+      } else {
+        autoExitCountdown--;
+      }
+    }
+  }
 
   @Override
   public void teleopInit() {

@@ -21,22 +21,26 @@ import java.util.TreeMap;
  *
  * # Analyze a specific log
  * .\gradlew.bat logSummary -PlogFile=logs/FRC_20260525_143022.wpilog
+ *
+ * # Analyze the most recent replay log
+ * .\gradlew.bat replayValidate
  * }</pre>
  *
  * <p>Output sections:
  * <ol>
- *   <li>Header — file path and duration</li>
+ *   <li>Header — file path, log type (live/replay), and duration</li>
  *   <li>All entries — every signal name and type logged in the file</li>
  *   <li>Numeric statistics — min/max for every double-typed signal</li>
- *   <li>Anomaly flags — loop overruns, disconnected gyro, excessive currents</li>
+ *   <li>Anomaly flags — loop overruns, gyro/camera disconnects, excessive currents,
+ *       vision observations all-rejected</li>
  * </ol>
  */
 public class LogSummary {
 
-  // Current threshold above which a drive motor current is flagged.
   private static final double CURRENT_OVERLOAD_AMPS = 60.0;
-  // Loop cycle time in microseconds above which an overrun is flagged.
-  private static final long LOOP_OVERRUN_US = 25_000;
+  private static final double LOOP_OVERRUN_MS = 25.0;
+  // Pose3d struct: Translation3d (3×8 bytes) + Rotation3d quaternion (4×8 bytes) = 56 bytes
+  private static final int POSE3D_BYTES = 56;
 
   public static void main(String[] args) throws Exception {
     String path = (args.length > 0) ? args[0] : findLatestLog();
@@ -46,26 +50,32 @@ public class LogSummary {
       System.exit(1);
     }
 
-    System.out.println("=== Log Summary: " + path + " ===");
+    boolean isReplay = path.endsWith("_sim.wpilog");
+    System.out.println("=== Log Summary" + (isReplay ? " [REPLAY]" : "") + ": " + path + " ===");
     System.out.println();
-    analyzeLog(path);
+    analyzeLog(path, isReplay);
   }
 
   // ---------------------------------------------------------------------------
   // Core analysis
   // ---------------------------------------------------------------------------
 
-  private static void analyzeLog(String path) throws Exception {
+  private static void analyzeLog(String path, boolean isReplay) throws Exception {
     DataLogReader reader = new DataLogReader(path);
 
     Map<Integer, String> names = new HashMap<>();
     Map<Integer, String> types = new HashMap<>();
-    Map<String, Double> mins   = new TreeMap<>();
-    Map<String, Double> maxes  = new TreeMap<>();
-    Map<String, Long>   counts = new TreeMap<>();
+    Map<String, Double>  mins   = new TreeMap<>();
+    Map<String, Double>  maxes  = new TreeMap<>();
+    Map<String, Long>    counts = new TreeMap<>();
+    // Gyro signal names that went false (disconnected) at any point.
+    java.util.Set<String> gyroDisconnected = new java.util.LinkedHashSet<>();
+    // Vision: max raw bytes seen per Accepted/Rejected pose-array entry (0 = always empty).
+    Map<String, Integer> visionPoseMaxRaw = new TreeMap<>();
+    java.util.Set<String> visionCamsDisconnected = new java.util.LinkedHashSet<>();
+
     long firstTs = Long.MAX_VALUE;
     long lastTs  = 0;
-    long overrunCount = 0;
 
     for (DataLogRecord rec : reader) {
       long ts = rec.getTimestamp();
@@ -89,11 +99,16 @@ public class LogSummary {
           mins.merge(name, v, Math::min);
           maxes.merge(name, v, Math::max);
           counts.merge(name, 1L, Long::sum);
-
-          // Detect loop overruns via the SystemStats epoch timestamp delta
-          // (AdvantageKit records actual loop time under this key)
-          if (name.contains("SystemStats") && name.contains("EpochTimeMicros") && v > LOOP_OVERRUN_US) {
-            overrunCount++;
+        } else if ("boolean".equals(type) && name.contains("Gyro") && name.endsWith("Connected")) {
+          if (!rec.getBoolean()) gyroDisconnected.add(name);
+        } else if (isVisionEntry(name)) {
+          if (isPoseArray(type) && (name.contains("Accepted") || name.contains("Rejected"))) {
+            // getRaw() returns the raw struct bytes; Pose3d[] has 0 bytes when empty,
+            // N×56 bytes when non-empty (no length prefix in WPILib struct encoding).
+            int rawLen = rec.getRaw().length;
+            visionPoseMaxRaw.merge(name, rawLen, Math::max);
+          } else if ("boolean".equals(type) && name.endsWith("Connected")) {
+            if (!rec.getBoolean()) visionCamsDisconnected.add(name);
           }
         }
       } catch (Exception ignored) {
@@ -104,51 +119,81 @@ public class LogSummary {
     double durationSec = (lastTs == 0) ? 0 : (lastTs - firstTs) / 1_000_000.0;
     System.out.printf("Duration : %.2f s%n", durationSec);
     System.out.printf("Entries  : %d%n", names.size());
+    if (isReplay) System.out.println("Log type : REPLAY (_sim.wpilog)");
     System.out.println();
 
     // --- All entries ---
     System.out.println("=== All Entries ===");
-    new TreeMap<>(names).forEach((id, name) ->
-        System.out.printf("  %-60s  (%s)%n", name, types.getOrDefault(id, "?")));
+    new TreeMap<>(names).forEach((id, n) ->
+        System.out.printf("  %-60s  (%s)%n", n, types.getOrDefault(id, "?")));
     System.out.println();
 
     // --- Numeric statistics ---
     System.out.println("=== Numeric Statistics (min / max) ===");
-    mins.forEach((name, min) -> {
-      double max = maxes.getOrDefault(name, min);
-      long   n   = counts.getOrDefault(name, 0L);
+    mins.forEach((n, min) -> {
+      double max = maxes.getOrDefault(n, min);
+      long   cnt = counts.getOrDefault(n, 0L);
       System.out.printf("  %-60s  %10.4f  /  %10.4f   (n=%d)%n",
-          truncate(name, 60), min, max, n);
+          truncate(n, 60), min, max, cnt);
     });
     System.out.println();
 
     // --- Anomaly flags ---
     System.out.println("=== Anomaly Flags ===");
-    boolean clean = true;
+    boolean[] found = {false};
 
-    if (overrunCount > 0) {
-      System.out.printf("  [WARN] Loop overruns detected: %d cycles > %d ms%n",
-          overrunCount, LOOP_OVERRUN_US / 1000);
-      clean = false;
+    // Loop overrun: AdvantageKit records actual wall time per cycle in FullCycleMS.
+    double maxCycleMs = maxes.getOrDefault("/RealOutputs/LoggedRobot/FullCycleMS", 0.0);
+    if (maxCycleMs > LOOP_OVERRUN_MS) {
+      System.out.printf("  [WARN] Loop overrun: FullCycleMS max=%.1f ms (threshold %.0f ms)%n",
+          maxCycleMs, LOOP_OVERRUN_MS);
+      found[0] = true;
     }
 
-    mins.forEach((name, min) -> {
-      double max = maxes.getOrDefault(name, min);
-      if (name.contains("CurrentAmps") && max > CURRENT_OVERLOAD_AMPS) {
-        System.out.printf("  [WARN] High current: %s  max=%.1f A%n", name, max);
+    mins.forEach((n, min) -> {
+      double max = maxes.getOrDefault(n, min);
+      if (n.contains("CurrentAmps") && max > CURRENT_OVERLOAD_AMPS) {
+        System.out.printf("  [WARN] High current: %s  max=%.1f A%n", n, max);
+        found[0] = true;
       }
     });
 
-    // Flag gyro disconnected
-    if (mins.containsKey("RealOutputs/Drive/GyroConnected")) {
-      double minConnected = mins.get("RealOutputs/Drive/GyroConnected");
-      if (minConnected < 0.5) {
-        System.out.println("  [WARN] Gyro disconnected during log");
-        clean = false;
+    gyroDisconnected.forEach(n -> {
+      System.out.printf("  [WARN] Gyro disconnected during log: %s%n", n);
+      found[0] = true;
+    });
+
+    // Vision anomalies
+    if (!visionPoseMaxRaw.isEmpty() || !visionCamsDisconnected.isEmpty()) {
+      System.out.println();
+      System.out.println("  --- Vision ---");
+
+      visionCamsDisconnected.forEach(n -> {
+        System.out.printf("  [WARN] Camera disconnected: %s%n", n);
+        found[0] = true;
+      });
+
+      boolean hasAcceptedKeys = visionPoseMaxRaw.keySet().stream()
+          .anyMatch(k -> k.contains("Accepted") && !k.contains("Summary"));
+      boolean anyAccepted = visionPoseMaxRaw.entrySet().stream()
+          .anyMatch(e -> e.getKey().contains("Accepted") && !e.getKey().contains("Summary")
+              && e.getValue() > 0);
+      boolean anyRejected = visionPoseMaxRaw.entrySet().stream()
+          .anyMatch(e -> e.getKey().contains("Rejected") && e.getValue() > 0);
+
+      if (hasAcceptedKeys && !anyAccepted && anyRejected) {
+        System.out.println("  [WARN] Vision: observations detected but all rejected "
+            + "— check ambiguity/field-bounds filters");
+        found[0] = true;
       }
+
+      visionPoseMaxRaw.forEach((n, maxRaw) -> {
+        int maxPoses = (maxRaw > 0) ? Math.max(1, maxRaw / POSE3D_BYTES) : 0;
+        System.out.printf("  [INFO] %-58s  max_poses/frame=%d%n", truncate(n, 58), maxPoses);
+      });
     }
 
-    if (clean) {
+    if (!found[0]) {
       System.out.println("  No anomalies detected.");
     }
   }
@@ -156,6 +201,15 @@ public class LogSummary {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  private static boolean isVisionEntry(String name) {
+    return name.contains("/Vision/");
+  }
+
+  private static boolean isPoseArray(String type) {
+    // AdvantageKit generates "struct:Pose3d[]" for Pose3d[] @AutoLog fields.
+    return type.contains("Pose3d") && type.contains("[]");
+  }
 
   private static String findLatestLog() throws Exception {
     Path dir = Paths.get("logs");
