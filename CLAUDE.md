@@ -194,13 +194,13 @@ Modules start facing forward (0°). A forward command works immediately. A straf
 ### 4. Initial heading has physics noise
 After one sub-tick, `initialPoseIsAtOrigin` sees a heading of ~1.5e-6 rad (sub-micro-radian numerical noise from dyn4j). Use tolerance `1e-4`, not `1e-6`.
 
-### 5. Running tests on Windows
-There is **no WSL access** to `C:\workspace`. Always use `gradlew.bat` via PowerShell:
-```powershell
-cd C:\workspace\FRC5010Claude
-.\gradlew.bat test
-```
-`./gradlew test` via Bash will fail (`/mnt/c` not mounted).
+### 5. Running tests — platform-dependent invocation
+Use the wrapper that matches the host:
+
+- **Windows local** (`C:\workspace\FRC5010Claude`): `.\gradlew.bat test` via PowerShell. WSL has no access to `C:\workspace`, so `./gradlew` via Bash fails (`/mnt/c` not mounted).
+- **Linux** (Codespace, devcontainer, claude.ai/code web sandbox, CI): `./gradlew test`. The `gradlew` script is already executable in-repo.
+
+This codebase is otherwise platform-agnostic — same JDK 17, same vendordeps, same test results. Slash commands in `.claude/commands/` are written for the Windows local workflow; on Linux, translate `.\gradlew.bat` → `./gradlew`.
 
 ### 6. `setPose()` needs one extra cycle before measuring — Layer 4 sequence
 `AkitSwerveDrive.setPose()` re-anchors the pose estimator immediately, but the Field2d widget and subsequent `getPose()` calls won't reflect the new value until `periodic()` runs again (next scheduler tick). Always insert `Commands.waitSeconds(0.05)` after a `setPose()` call inside a command sequence before asserting position, or you'll compare against the old pose.
