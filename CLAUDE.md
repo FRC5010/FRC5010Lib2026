@@ -372,6 +372,12 @@ See `/new-vision-camera` for the step-by-step wiring guide.
 
 ---
 
+## MCP servers available
+
+- **`frc-docs`** (`first-agentic-csa` via `uvx`, configured in `.mcp.json`) — natural-language search across WPILib, REV Robotics, CTRE Phoenix, Redux Robotics, and PhotonVision documentation. Prefer this over `WebFetch` for vendor-API questions ("how do I configure a SparkMax", "what's the TalonFX position-PID signature") — it's a single search across all five doc sites and respects the project's language context. Requires `uv` on PATH locally (Codespace/web sandbox installs it via `.devcontainer/Dockerfile`).
+
+---
+
 ## Slash commands available
 
 - `/new-sim-test` — step-by-step playbook for adding a Layer 2 or Layer 3 sim test (includes team-specific test location)
