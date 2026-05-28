@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>FRC5010 Robot Control</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    display: flex; flex-direction: column; height: 100dvh;
+    background: #111; color: #eee; font-family: monospace; overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #field-canvas { flex: 1; min-height: 0; display: block; width: 100%; }
+
+  /* ---- controls row ---- */
+  #controls {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px; height: 200px; gap: 8px; flex-shrink: 0;
+  }
+
+  /* ---- thumbsticks ---- */
+  .stick-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .stick-label { font-size: 11px; color: #888; }
+  .stick-base {
+    position: relative; border-radius: 50%; background: #2a2a2a;
+    border: 2px solid #444; width: 140px; height: 140px; touch-action: none;
+    flex-shrink: 0;
+  }
+  .stick-knob {
+    position: absolute; border-radius: 50%; background: #666; border: 2px solid #999;
+    width: 52px; height: 52px; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); pointer-events: none;
+    transition: background 0.1s;
+  }
+  .stick-base.active .stick-knob { background: #aaa; }
+
+  /* ---- center panel ---- */
+  #center-panel {
+    display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1;
+    min-width: 120px;
+  }
+
+  /* alliance selector */
+  #alliance-row { display: flex; gap: 6px; }
+  .alliance-btn {
+    padding: 7px 14px; border: 2px solid #555; border-radius: 6px;
+    background: #222; color: #aaa; cursor: pointer; font-size: 14px; font-weight: bold;
+    transition: all 0.15s; user-select: none;
+  }
+  .alliance-btn.active-blue { background: #003080; border-color: #5599ff; color: #fff; }
+  .alliance-btn.active-red  { background: #800000; border-color: #ff4444; color: #fff; }
+
+  /* enable button */
+  #enable-btn {
+    width: 100%; padding: 10px; border-radius: 8px; border: 2px solid #555;
+    background: #2a2a2a; color: #aaa; cursor: pointer; font-size: 15px; font-weight: bold;
+    transition: all 0.15s; user-select: none;
+  }
+  #enable-btn.enabled { background: #1a5c1a; border-color: #44cc44; color: #fff; }
+
+  /* game buttons A B X Y LB RB */
+  #btn-row-abxy, #btn-row-bumpers {
+    display: flex; gap: 6px; justify-content: center;
+  }
+  .game-btn {
+    width: 44px; height: 44px; border-radius: 8px; border: 2px solid #555;
+    background: #2a2a2a; color: #ccc; cursor: pointer; font-size: 13px; font-weight: bold;
+    user-select: none; touch-action: none; transition: filter 0.1s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .game-btn:active, .game-btn.held { filter: brightness(1.6); }
+  .btn-a  { background: #1a4a1a; border-color: #44cc44; color: #8f8; }
+  .btn-b  { background: #4a1a1a; border-color: #cc4444; color: #f88; }
+  .btn-x  { background: #1a1a4a; border-color: #4444cc; color: #88f; }
+  .btn-y  { background: #4a3a00; border-color: #ccaa00; color: #ff8; }
+  .btn-lb, .btn-rb { width: 54px; background: #252525; border-color: #666; }
+
+  /* status bar */
+  #status {
+    padding: 4px 10px; background: #1a1a1a; font-size: 12px; color: #888;
+    border-top: 1px solid #2a2a2a; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; flex-shrink: 0;
+  }
+  #status .ok  { color: #44cc44; }
+  #status .bad { color: #cc4444; }
+</style>
+</head>
+<body>
+<canvas id="field-canvas"></canvas>
+
+<div id="controls">
+  <div class="stick-wrap">
+    <div class="stick-base" id="left-base"><div class="stick-knob" id="left-knob"></div></div>
+    <span class="stick-label">Translate</span>
+  </div>
+
+  <div id="center-panel">
+    <div id="alliance-row">
+      <button class="alliance-btn active-blue" id="btn-blue" onclick="selectAlliance('Blue')">Blue</button>
+      <button class="alliance-btn"             id="btn-red"  onclick="selectAlliance('Red')">Red</button>
+    </div>
+    <button id="enable-btn" onclick="toggleEnable()">ENABLE</button>
+    <div id="btn-row-abxy">
+      <div class="game-btn btn-a"  data-idx="0">A</div>
+      <div class="game-btn btn-b"  data-idx="1">B</div>
+      <div class="game-btn btn-x"  data-idx="2">X</div>
+      <div class="game-btn btn-y"  data-idx="3">Y</div>
+    </div>
+    <div id="btn-row-bumpers">
+      <div class="game-btn btn-lb" data-idx="4">LB</div>
+      <div class="game-btn btn-rb" data-idx="5">RB</div>
+    </div>
+  </div>
+
+  <div class="stick-wrap">
+    <div class="stick-base" id="right-base"><div class="stick-knob" id="right-knob"></div></div>
+    <span class="stick-label">Rotate</span>
+  </div>
+</div>
+
+<div id="status">Connecting…</div>
+
+<script>
+'use strict';
+
+// ---- State ----
+const state = {
+  x: 0, y: 0, headingRad: 0,
+  maxLinear: 4.5, maxAngular: 6.283,
+  fieldWidth: 16.540988, fieldHeight: 8.21,
+  enabled: false, alliance: 'Blue', connected: false
+};
+
+let leftX = 0, leftY = 0, rightX = 0;
+const buttonHeld = [false, false, false, false, false, false];
+const keys = {};
+
+// ---- Keyboard ----
+document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+document.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
+
+function keyboardInputs() {
+  const vx    = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)
+              + (keys['arrowup'] ? 1 : 0) - (keys['arrowdown'] ? 1 : 0);
+  const vy    = (keys['a'] ? 1 : 0) - (keys['d'] ? 1 : 0);
+  const omega = (keys['q'] ? 1 : 0) - (keys['e'] ? 1 : 0)
+              + (keys['arrowleft'] ? 1 : 0) - (keys['arrowright'] ? 1 : 0);
+  return { vx: Math.max(-1, Math.min(1, vx)),
+           vy: Math.max(-1, Math.min(1, vy)),
+           omega: Math.max(-1, Math.min(1, omega)) };
+}
+
+// ---- Thumbsticks (Pointer Events) ----
+function setupStick(baseId, knobId, onUpdate) {
+  const base = document.getElementById(baseId);
+  const knob = document.getElementById(knobId);
+  let active = false;
+
+  function update(e) {
+    const r = base.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top  + r.height / 2;
+    const radius = r.width / 2;
+    let dx = (e.clientX - cx) / radius;
+    let dy = (e.clientY - cy) / radius;
+    const mag = Math.sqrt(dx * dx + dy * dy);
+    if (mag > 1) { dx /= mag; dy /= mag; }
+    const DEAD = 0.05;
+    if (mag < DEAD) { dx = 0; dy = 0; }
+    onUpdate(dx, dy);
+    knob.style.left = (50 + dx * 44) + '%';
+    knob.style.top  = (50 + dy * 44) + '%';
+  }
+
+  function reset() {
+    onUpdate(0, 0);
+    knob.style.left = '50%';
+    knob.style.top  = '50%';
+    base.classList.remove('active');
+  }
+
+  base.addEventListener('pointerdown', e => {
+    active = true; base.setPointerCapture(e.pointerId);
+    base.classList.add('active'); update(e);
+  });
+  base.addEventListener('pointermove',  e => { if (active) update(e); });
+  base.addEventListener('pointerup',    () => { active = false; reset(); });
+  base.addEventListener('pointercancel',() => { active = false; reset(); });
+}
+
+setupStick('left-base',  'left-knob',  (dx, dy) => { leftX =  dx; leftY = dy; });
+setupStick('right-base', 'right-knob', (dx, dy) => { rightX = dx; });
+
+// ---- Game buttons ----
+document.querySelectorAll('.game-btn').forEach(btn => {
+  const idx = parseInt(btn.dataset.idx);
+  btn.addEventListener('pointerdown',  e => { btn.setPointerCapture(e.pointerId); buttonHeld[idx] = true;  btn.classList.add('held'); });
+  btn.addEventListener('pointerup',    () => { buttonHeld[idx] = false; btn.classList.remove('held'); });
+  btn.addEventListener('pointercancel',() => { buttonHeld[idx] = false; btn.classList.remove('held'); });
+});
+
+// ---- Alliance & Enable ----
+let currentAlliance = 'Blue';
+let currentEnabled  = false;
+
+function selectAlliance(a) {
+  currentAlliance = a;
+  document.getElementById('btn-blue').className = 'alliance-btn' + (a === 'Blue' ? ' active-blue' : '');
+  document.getElementById('btn-red').className  = 'alliance-btn' + (a === 'Red'  ? ' active-red'  : '');
+  postControl();
+}
+
+function toggleEnable() {
+  currentEnabled = !currentEnabled;
+  updateEnableBtn();
+  postControl();
+}
+
+function updateEnableBtn() {
+  const btn = document.getElementById('enable-btn');
+  btn.textContent = currentEnabled ? 'DISABLE' : 'ENABLE';
+  btn.className = currentEnabled ? 'enabled' : '';
+}
+
+function postControl() {
+  fetch('/api/control', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ enabled: currentEnabled, alliance: currentAlliance })
+  }).catch(() => {});
+}
+
+// ---- Sync enable/alliance from state ----
+function syncControlsFromState() {
+  if (currentEnabled !== state.enabled) {
+    currentEnabled = state.enabled;
+    updateEnableBtn();
+  }
+}
+
+// ---- Field Canvas rendering ----
+const canvas = document.getElementById('field-canvas');
+
+function fieldToCanvas(W, H) {
+  const { x, y, headingRad, fieldWidth, fieldHeight, alliance } = state;
+  let cx, cy, canvasAngle;
+  if (alliance === 'Red') {
+    cx = (y / fieldHeight) * W;
+    cy = (x / fieldWidth)  * H;
+    canvasAngle = -headingRad + Math.PI / 2;
+  } else {
+    cx = (1 - y / fieldHeight) * W;
+    cy = H - (x / fieldWidth) * H;
+    canvasAngle = -headingRad - Math.PI / 2;
+  }
+  return { cx, cy, canvasAngle };
+}
+
+function drawField() {
+  const W = canvas.width  = canvas.clientWidth;
+  const H = canvas.height = canvas.clientHeight;
+  if (W < 1 || H < 1) return;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#1a2e1a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Centre line
+  const { alliance } = state;
+  const isRed = alliance === 'Red';
+  ctx.strokeStyle = '#2a4a2a'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+
+  // Alliance zones
+  const ownClr = isRed ? 'rgba(180,0,0,0.25)'   : 'rgba(0,60,180,0.25)';
+  const oppClr = isRed ? 'rgba(0,60,180,0.25)'  : 'rgba(180,0,0,0.25)';
+  ctx.fillStyle = ownClr; ctx.fillRect(0, H * 0.82, W, H * 0.18);
+  ctx.fillStyle = oppClr; ctx.fillRect(0, 0,         W, H * 0.18);
+
+  // Field border
+  ctx.strokeStyle = '#3a5a3a'; ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+
+  // ---- Robot ----
+  const { cx, cy, canvasAngle } = fieldToCanvas(W, H);
+  const robotPx = (0.76 / state.fieldHeight) * W;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(canvasAngle);
+
+  // Body
+  ctx.fillStyle = state.connected ? (isRed ? '#aa2222' : '#2244aa') : '#555';
+  ctx.fillRect(-robotPx / 2, -robotPx / 2, robotPx, robotPx);
+
+  // Heading arrow (yellow triangle pointing "forward" = up after rotate)
+  ctx.fillStyle = '#ffee00';
+  const aw = robotPx * 0.28, ah = robotPx * 0.4;
+  ctx.beginPath();
+  ctx.moveTo(0,      -robotPx / 2 - ah);
+  ctx.lineTo( aw,    -robotPx / 2);
+  ctx.lineTo(-aw,    -robotPx / 2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ---- Communication loop (50 ms) ----
+setInterval(async () => {
+  const kb = keyboardInputs();
+  const vx    = kb.vx    || -leftY;
+  const vy    = kb.vy    ||  leftX;
+  const omega = kb.omega ||  rightX;
+
+  // POST drive command (fire-and-forget)
+  fetch('/api/drive', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ vx, vy, omega, buttons: [...buttonHeld] })
+  }).catch(() => {});
+
+  // GET robot state
+  try {
+    const resp = await fetch('/api/state');
+    const s = await resp.json();
+    Object.assign(state, s);
+    syncControlsFromState();
+    updateStatus(vx, vy, omega);
+    drawField();
+  } catch (e) {
+    state.connected = false;
+    updateStatus(0, 0, 0);
+    drawField();
+  }
+}, 50);
+
+// ---- Status bar ----
+function updateStatus(vx, vy, omega) {
+  const el = document.getElementById('status');
+  const connEl = state.connected
+    ? '<span class="ok">● Connected</span>'
+    : '<span class="bad">● Disconnected</span>';
+  const vxMs    = (vx    * state.maxLinear).toFixed(1);
+  const vyMs    = (vy    * state.maxLinear).toFixed(1);
+  const omgRps  = (omega * state.maxAngular).toFixed(2);
+  const hdgDeg  = (state.headingRad * 180 / Math.PI).toFixed(1);
+  el.innerHTML = `${connEl} &nbsp;|&nbsp; `
+    + `x=${state.x.toFixed(2)} y=${state.y.toFixed(2)} hdg=${hdgDeg}° &nbsp;|&nbsp; `
+    + `vx=${vxMs} vy=${vyMs} ω=${omgRps}`;
+}
+
+// Initial render
+drawField();
+window.addEventListener('resize', drawField);
+</script>
+</body>
+</html>

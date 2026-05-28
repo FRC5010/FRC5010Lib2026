@@ -11,8 +11,10 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.button.Trigger;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
 import org.frc5010.common.vision.Vision;
 
@@ -69,6 +71,9 @@ public abstract class SwerveRobotContainer {
    * Leave {@code null} to skip vision entirely.
    */
   protected Vision vision = null;
+
+  /** Browser-based field visualization and virtual controller. Non-null only in simulation. */
+  protected WebDriveController webController = null;
 
   // Stored when constructed from a RobotProfile; null when constructed from a bare drive.
   private final RobotProfile profile;
@@ -183,6 +188,11 @@ public abstract class SwerveRobotContainer {
    * {@code super.configureBindings()} first preserves the keyboard drive while adding new bindings.
    */
   protected void configureBindings() {
+    if (RobotBase.isSimulation()) {
+      webController = new WebDriveController(drive);
+      webController.start();
+    }
+
     JoystickAxis forward  = controller.axis(1).negate().deadzone(0.05);
     JoystickAxis strafe   = controller.axis(0).negate().deadzone(0.05);
     JoystickAxis rotation = controller.axis(2).negate().deadzone(0.05);
@@ -191,9 +201,26 @@ public abstract class SwerveRobotContainer {
     drive.setDefaultCommand(
         Commands.run(
             () -> {
+              if (webController != null) {
+                webController.applyPendingControl(this::resetToAllianceStart);
+              }
+
               double flip =
                   DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
                       ? -1.0 : 1.0;
+
+              if (webController != null && webController.isConnected()) {
+                ChassisSpeeds web = webController.getChassisSpeeds();
+                drive.runVelocityFieldRelative(new ChassisSpeeds(
+                    flip * web.vxMetersPerSecond,
+                    flip * web.vyMetersPerSecond,
+                    web.omegaRadiansPerSecond));
+                return;
+              }
+              if (webController != null && webController.isStale()) {
+                drive.stop();
+                return;
+              }
               Translation2d xy = translate.get();
               drive.runVelocityFieldRelative(
                   new ChassisSpeeds(
@@ -206,6 +233,15 @@ public abstract class SwerveRobotContainer {
             drive
         ).withName("KeyboardDrive")
     );
+  }
+
+  /**
+   * Returns a {@link Trigger} that is active while web interface button {@code idx} is held.
+   * Indices: 0=A, 1=B, 2=X, 3=Y, 4=LB, 5=RB.
+   * Returns a never-active trigger when not in simulation.
+   */
+  public Trigger webButton(int idx) {
+    return new Trigger(webController != null ? webController.getButton(idx) : () -> false);
   }
 
   // ---------------------------------------------------------------------------
