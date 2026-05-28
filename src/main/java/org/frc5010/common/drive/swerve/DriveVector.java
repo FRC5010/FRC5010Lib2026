@@ -2,22 +2,22 @@ package org.frc5010.common.drive.swerve;
 
 import edu.wpi.first.math.geometry.Translation2d;
 import java.util.function.DoubleSupplier;
+import java.util.function.DoubleUnaryOperator;
+import java.util.function.UnaryOperator;
 
 /**
- * Combines two joystick axes into a 2-D drive vector with optional unit-circle normalization.
+ * Combines two joystick axes into a 2-D drive vector with a chainable transform pipeline.
  *
- * <p>Without normalization the X and Y components are returned as-is. With
- * {@link #unitCircle()}, the combined vector is clamped so its magnitude never exceeds 1.
- * This prevents diagonal inputs from producing speeds greater than the robot's maximum —
- * important for swerve drive where unscaled diagonal inputs would reach magnitude √2.
+ * <p>Transforms operate on the vector's <em>magnitude</em> while preserving its direction,
+ * mirroring the transform API of {@link JoystickAxis}. Use {@link #unitCircle()} (an alias
+ * for {@link #limit(double) limit(1.0)}) to prevent diagonal inputs from exceeding 1.
  *
- * <p>Example — swerve translation axes with unit-circle normalization, then scaled to
- * physical speed:
+ * <p>Example — deadzone and response curve applied to the combined magnitude, then clamped:
  * <pre>{@code
  * DriveVector translate = DriveVector.of(
- *     controller.axis(1).negate().deadzone(0.05),   // forward (X)
- *     controller.axis(0).negate().deadzone(0.05)    // strafe  (Y)
- * ).unitCircle();
+ *     controller.axis(1).negate(),
+ *     controller.axis(0).negate()
+ * ).deadzone(0.05).power(2.0).unitCircle();
  *
  * // Inside the drive command lambda:
  * Translation2d xy = translate.get();
@@ -29,11 +29,12 @@ public class DriveVector {
 
   private final DoubleSupplier xSupplier;
   private final DoubleSupplier ySupplier;
-  private boolean normalize;
+  private UnaryOperator<Translation2d> chain;
 
   private DriveVector(DoubleSupplier x, DoubleSupplier y) {
     this.xSupplier = x;
     this.ySupplier = y;
+    this.chain = v -> v;
   }
 
   /**
@@ -47,29 +48,70 @@ public class DriveVector {
   }
 
   /**
-   * Enable unit-circle normalization: if the combined magnitude exceeds 1.0 both components
-   * are scaled down proportionally so the magnitude equals exactly 1.0.
-   * Magnitudes already ≤ 1.0 are left unchanged.
+   * Apply a deadzone to the vector's magnitude: if magnitude is {@code ≤ threshold}
+   * the vector becomes zero. The remaining range is rescaled so full deflection still
+   * maps to magnitude 1.
    */
-  public DriveVector unitCircle() {
-    this.normalize = true;
-    return this;
+  public DriveVector deadzone(double threshold) {
+    return appendMagnitude(mag -> {
+      if (mag <= threshold) return 0.0;
+      return (mag - threshold) / (1.0 - threshold);
+    });
   }
 
   /**
-   * Evaluate both axes and return the (possibly normalized) vector.
+   * Raise the vector's magnitude to {@code exponent}.
+   * e.g. {@code power(2)} gives a squared (gentle-start) response curve.
+   */
+  public DriveVector power(double exponent) {
+    return appendMagnitude(mag -> Math.pow(mag, exponent));
+  }
+
+  /** Multiply the vector's magnitude by {@code factor}. */
+  public DriveVector scale(double factor) {
+    return appendMagnitude(mag -> mag * factor);
+  }
+
+  /** Clamp the vector's magnitude to {@code [0, max]}. */
+  public DriveVector limit(double max) {
+    return appendMagnitude(mag -> Math.min(max, mag));
+  }
+
+  /**
+   * Clamp the vector's magnitude to 1.0, preventing diagonal inputs from exceeding
+   * the robot's maximum speed. Equivalent to {@code limit(1.0)}.
+   */
+  public DriveVector unitCircle() {
+    return limit(1.0);
+  }
+
+  /** Reverse the direction of the vector (negates both X and Y components). */
+  public DriveVector negate() {
+    return append(v -> new Translation2d(-v.getX(), -v.getY()));
+  }
+
+  /**
+   * Evaluate both axes and return the transformed vector.
    * The returned {@link Translation2d} has X = first axis, Y = second axis.
    */
   public Translation2d get() {
     double x = xSupplier.getAsDouble();
     double y = ySupplier.getAsDouble();
-    if (normalize) {
-      double mag = Math.hypot(x, y);
-      if (mag > 1.0) {
-        x /= mag;
-        y /= mag;
-      }
-    }
-    return new Translation2d(x, y);
+    return chain.apply(new Translation2d(x, y));
+  }
+
+  private DriveVector appendMagnitude(DoubleUnaryOperator op) {
+    return append(v -> {
+      double mag = v.getNorm();
+      if (mag == 0.0) return new Translation2d();
+      double newMag = op.applyAsDouble(mag);
+      return new Translation2d(v.getX() / mag * newMag, v.getY() / mag * newMag);
+    });
+  }
+
+  private DriveVector append(UnaryOperator<Translation2d> next) {
+    UnaryOperator<Translation2d> prev = chain;
+    chain = v -> next.apply(prev.apply(v));
+    return this;
   }
 }

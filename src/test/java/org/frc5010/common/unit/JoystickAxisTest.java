@@ -243,4 +243,168 @@ class JoystickAxisTest {
     assertEquals(0.8, v.getX(), EPS);
     assertEquals(0.6, v.getY(), EPS);
   }
+
+  // -------------------------------------------------------------------------
+  // DriveVector — deadzone (magnitude-based)
+  // -------------------------------------------------------------------------
+
+  @Test
+  void driveVectorDeadzoneBelowThresholdReturnsZeroVector() {
+    Translation2d v = DriveVector.of(() -> 0.03, () -> 0.03).deadzone(0.1).get();
+    assertEquals(0.0, v.getX(), EPS);
+    assertEquals(0.0, v.getY(), EPS);
+  }
+
+  @Test
+  void driveVectorDeadzoneAtThresholdReturnsZeroVector() {
+    // exactly on the threshold boundary → snapped to zero
+    Translation2d v = DriveVector.of(() -> 0.1, () -> 0.0).deadzone(0.1).get();
+    assertEquals(0.0, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorDeadzoneFullDeflectionPreservesMagnitudeOne() {
+    Translation2d v = DriveVector.of(() -> 1.0, () -> 0.0).deadzone(0.1).get();
+    assertEquals(1.0, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorDeadzonePreservesDirection() {
+    // 45-degree input with magnitude above threshold — direction should remain 45°
+    double r = 0.8;
+    double comp = r / Math.sqrt(2.0);
+    Translation2d v = DriveVector.of(() -> comp, () -> comp).deadzone(0.1).get();
+    assertEquals(v.getX(), v.getY(), EPS);
+  }
+
+  @Test
+  void driveVectorDeadzoneRescalesMagnitudeCorrectly() {
+    // magnitude = 0.5, threshold = 0.1 → rescaled = (0.5 - 0.1) / (1.0 - 0.1)
+    double input = 0.5;
+    double threshold = 0.1;
+    double expectedMag = (input - threshold) / (1.0 - threshold);
+    Translation2d v = DriveVector.of(() -> input, () -> 0.0).deadzone(threshold).get();
+    assertEquals(expectedMag, v.getNorm(), EPS);
+  }
+
+  // -------------------------------------------------------------------------
+  // DriveVector — power (magnitude-based)
+  // -------------------------------------------------------------------------
+
+  @Test
+  void driveVectorPowerSquaredReducesMagnitude() {
+    // input magnitude = 0.5, power(2) → 0.25
+    Translation2d v = DriveVector.of(() -> 0.5, () -> 0.0).power(2.0).get();
+    assertEquals(0.25, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorPowerPreservesDirection() {
+    double comp = 1.0 / Math.sqrt(2.0);
+    Translation2d v = DriveVector.of(() -> comp, () -> comp).power(2.0).get();
+    assertEquals(v.getX(), v.getY(), EPS);
+  }
+
+  @Test
+  void driveVectorPowerOneIsIdentity() {
+    Translation2d v = DriveVector.of(() -> 0.7, () -> 0.0).power(1.0).get();
+    assertEquals(0.7, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorPowerFullDeflectionRemainsOne() {
+    Translation2d v = DriveVector.of(() -> 1.0, () -> 0.0).power(3.0).get();
+    assertEquals(1.0, v.getNorm(), EPS);
+  }
+
+  // -------------------------------------------------------------------------
+  // DriveVector — scale (magnitude-based)
+  // -------------------------------------------------------------------------
+
+  @Test
+  void driveVectorScaleDoublesMagnitude() {
+    Translation2d v = DriveVector.of(() -> 0.5, () -> 0.0).scale(2.0).get();
+    assertEquals(1.0, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorScalePreservesDirection() {
+    double comp = 0.5 / Math.sqrt(2.0);
+    Translation2d v = DriveVector.of(() -> comp, () -> comp).scale(3.0).get();
+    assertEquals(v.getX(), v.getY(), EPS);
+  }
+
+  @Test
+  void driveVectorScaleByZeroReturnsZeroVector() {
+    Translation2d v = DriveVector.of(() -> 0.8, () -> 0.6).scale(0.0).get();
+    assertEquals(0.0, v.getNorm(), EPS);
+  }
+
+  // -------------------------------------------------------------------------
+  // DriveVector — limit (magnitude-based)
+  // -------------------------------------------------------------------------
+
+  @Test
+  void driveVectorLimitClampsMagnitudeAboveMax() {
+    // diagonal (1,1) has magnitude √2, limit(1.0) should bring it to 1.0
+    Translation2d v = DriveVector.of(() -> 1.0, () -> 1.0).limit(1.0).get();
+    assertEquals(1.0, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorLimitPassesThroughMagnitudeBelow() {
+    Translation2d v = DriveVector.of(() -> 0.5, () -> 0.0).limit(1.0).get();
+    assertEquals(0.5, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorLimitPreservesDirection() {
+    Translation2d v = DriveVector.of(() -> 1.0, () -> 1.0).limit(1.0).get();
+    assertEquals(v.getX(), v.getY(), EPS);
+  }
+
+  // -------------------------------------------------------------------------
+  // DriveVector — negate
+  // -------------------------------------------------------------------------
+
+  @Test
+  void driveVectorNegateFlipsBothComponents() {
+    Translation2d v = DriveVector.of(() -> 0.8, () -> 0.6).negate().get();
+    assertEquals(-0.8, v.getX(), EPS);
+    assertEquals(-0.6, v.getY(), EPS);
+  }
+
+  @Test
+  void driveVectorNegatePreservesMagnitude() {
+    Translation2d v = DriveVector.of(() -> 0.8, () -> 0.6).negate().get();
+    assertEquals(1.0, v.getNorm(), EPS);
+  }
+
+  // -------------------------------------------------------------------------
+  // DriveVector — chained transforms
+  // -------------------------------------------------------------------------
+
+  @Test
+  void driveVectorDeadzoneThenPowerAppliesInOrder() {
+    // magnitude 0.5, deadzone(0.1): rescaled = 0.4/0.9 ≈ 0.444, then power(2): ≈ 0.198
+    double rescaled = (0.5 - 0.1) / (1.0 - 0.1);
+    double expected = Math.pow(rescaled, 2.0);
+    Translation2d v = DriveVector.of(() -> 0.5, () -> 0.0).deadzone(0.1).power(2.0).get();
+    assertEquals(expected, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorScaleThenLimitCaps() {
+    // magnitude 0.8, scale(2) → 1.6, limit(1.0) → 1.0
+    Translation2d v = DriveVector.of(() -> 0.8, () -> 0.0).scale(2.0).limit(1.0).get();
+    assertEquals(1.0, v.getNorm(), EPS);
+  }
+
+  @Test
+  void driveVectorZeroInputThroughTransformChainIsSafe() {
+    Translation2d v = DriveVector.of(() -> 0.0, () -> 0.0)
+        .deadzone(0.05).power(2.0).scale(4.5).unitCircle().get();
+    assertEquals(0.0, v.getX(), EPS);
+    assertEquals(0.0, v.getY(), EPS);
+  }
 }
