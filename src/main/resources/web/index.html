@@ -144,6 +144,7 @@ const state = {
 let leftX = 0, leftY = 0, rightX = 0;
 const buttonHeld = [false, false, false, false, false, false];
 const keys = {};
+let gamePieces = [];  // [{x, y}, ...] — updated every 50 ms from /api/gamepieces
 
 // ---- Keyboard ----
 document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
@@ -491,6 +492,22 @@ function drawAprilTags(ctx, W, H) {
   }
 }
 
+// Draw each Fuel piece as a small disc at its current physics position.
+// Pieces move when the robot collides with them.
+function drawGamePieces(ctx, W, H) {
+  const rPx = Math.max(4, mToPx(0.075, W, H));
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 1;
+  for (const p of gamePieces) {
+    const { cx, cy } = fieldPt(p.x, p.y, W, H);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rPx, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(200,200,215,0.90)';
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
 function drawField() {
   const ctx = canvas.getContext('2d');
   const cw = canvas.width  = canvas.clientWidth;
@@ -550,6 +567,9 @@ function drawField() {
   // ---- AprilTags ----
   drawAprilTags(ctx, W, H);
 
+  // ---- Game pieces (Fuel) — drawn after obstacles so they sit on top ----
+  drawGamePieces(ctx, W, H);
+
   // Magenta field perimeter (the field wall / barrier), drawn on top.
   ctx.strokeStyle = '#d838c8'; ctx.lineWidth = 4;
   ctx.strokeRect(2, 2, W - 4, H - 4);
@@ -587,6 +607,11 @@ setInterval(async () => {
   const vx    = kb.vx    || -leftY;
   const vy    = kb.vy    || -leftX;   // screen-right = field-right = -Y in WPILib
   const omega = kb.omega || -rightX;  // screen-right = CW = negative omega in WPILib
+
+  // Fetch game piece positions (fire-and-forget; drawn on next frame)
+  fetch('/api/gamepieces').then(r => r.json()).then(d => {
+    gamePieces = (d.pieces || []).map(p => ({ x: p[0], y: p[1] }));
+  }).catch(() => {});
 
   // POST drive command (fire-and-forget)
   fetch('/api/drive', {

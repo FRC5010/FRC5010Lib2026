@@ -9,6 +9,8 @@ import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import swervelib.simulation.ironmaple.simulation.SimulatedArena;
+import swervelib.simulation.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -78,11 +80,12 @@ public class WebDriveController {
         try {
             executor = Executors.newFixedThreadPool(4);
             server = HttpServer.create(new InetSocketAddress(PORT), 0);
-            server.createContext("/api/state",   this::handleState);
-            server.createContext("/api/drive",   this::handleDrive);
-            server.createContext("/api/control", this::handleControl);
-            server.createContext("/tags/",       this::handleTagImage);
-            server.createContext("/",            this::handleRoot);
+            server.createContext("/api/state",      this::handleState);
+            server.createContext("/api/drive",      this::handleDrive);
+            server.createContext("/api/control",    this::handleControl);
+            server.createContext("/api/gamepieces", this::handleGamePieces);
+            server.createContext("/tags/",          this::handleTagImage);
+            server.createContext("/",               this::handleRoot);
             server.setExecutor(executor);
             server.start();
             System.out.println("[WebDriveController] Robot web interface: http://localhost:" + PORT);
@@ -189,6 +192,32 @@ public class WebDriveController {
             ex.sendResponseHeaders(200, body.length);
             try (OutputStream os = ex.getResponseBody()) { os.write(body); }
         }
+    }
+
+    /**
+     * Returns a JSON array of current Fuel piece positions for the web field view.
+     * Calls {@code gamePiecesOnField()} which is synchronized on the arena — safe
+     * to call from this HTTP handler thread.
+     */
+    private void handleGamePieces(HttpExchange ex) throws IOException {
+        addCors(ex);
+        if (!"GET".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(405, -1); return; }
+        StringBuilder sb = new StringBuilder("{\"pieces\":[");
+        boolean first = true;
+        try {
+            for (GamePieceOnFieldSimulation piece
+                    : SimulatedArena.getInstance().gamePiecesOnField()) {
+                if (!"Fuel".equals(piece.getType())) continue;
+                var pose = piece.getPoseOnField();
+                if (!first) sb.append(',');
+                sb.append('[')
+                  .append(String.format("%.3f", pose.getX())).append(',')
+                  .append(String.format("%.3f", pose.getY())).append(']');
+                first = false;
+            }
+        } catch (Exception ignored) {}
+        sb.append("]}");
+        respond(ex, 200, "application/json", sb.toString());
     }
 
     /** Serves AprilTag PNGs from the {@code /web/tags/} classpath resources. */
