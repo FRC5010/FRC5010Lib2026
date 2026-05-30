@@ -138,7 +138,8 @@ const state = {
   x: 0, y: 0, headingRad: 0,
   maxLinear: 4.5, maxAngular: 6.283,
   fieldWidth: 16.540988, fieldHeight: 8.21,
-  enabled: false, alliance: 'Blue', connected: false
+  enabled: false, alliance: 'Blue', connected: false,
+  heldFuel: 0, intakeExtended: false
 };
 
 let leftX = 0, leftY = 0, rightX = 0;
@@ -582,21 +583,42 @@ function drawField() {
   ctx.translate(cx, cy);
   ctx.rotate(canvasAngle);
 
-  // Body
+  // Intake arm — drawn first so it appears behind the robot body.
+  // The arm extends from the front bumper edge outward by 12" (0.305 m).
+  if (state.intakeExtended) {
+    const intakeLenPx = mToPx(0.305, W, H);
+    const intakeWPx   = robotPx * 0.55;
+    ctx.fillStyle   = 'rgba(50,220,80,0.75)';
+    ctx.strokeStyle = 'rgba(80,255,80,0.95)';
+    ctx.lineWidth   = 1.5;
+    ctx.fillRect(-intakeWPx / 2, -robotPx / 2 - intakeLenPx, intakeWPx, intakeLenPx);
+    ctx.strokeRect(-intakeWPx / 2, -robotPx / 2 - intakeLenPx, intakeWPx, intakeLenPx);
+  }
+
+  // Robot body
   ctx.fillStyle = state.connected ? (isRed ? '#aa2222' : '#2244aa') : '#555';
   ctx.fillRect(-robotPx / 2, -robotPx / 2, robotPx, robotPx);
 
-  // Heading arrow (light-green triangle pointing "forward" = up after rotate)
+  // Heading indicator — small light-green arrow inside the robot body,
+  // pointing toward the front (up in local frame = heading direction).
   ctx.fillStyle = '#90ee90';
-  const aw = robotPx * 0.28, ah = robotPx * 0.4;
+  const aw = robotPx * 0.20;
   ctx.beginPath();
-  ctx.moveTo(0,      -robotPx / 2 - ah);
-  ctx.lineTo( aw,    -robotPx / 2);
-  ctx.lineTo(-aw,    -robotPx / 2);
+  ctx.moveTo(0,         -robotPx * 0.30);  // tip (near front edge)
+  ctx.lineTo( aw,        robotPx * 0.15);  // back-right
+  ctx.lineTo(-aw,        robotPx * 0.15);  // back-left
   ctx.closePath();
   ctx.fill();
 
-  ctx.restore();   // robot transform
+  ctx.restore();
+
+  // ---- Fuel count overlay (top-left of field render area) ----
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(6, 6, 88, 22);
+  ctx.fillStyle = 'rgba(245,210,40,0.95)';
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('Fuel: ' + state.heldFuel, 12, 17);   // robot transform
 
   ctx.restore();   // field-render offset (letterbox)
 }

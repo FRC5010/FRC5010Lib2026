@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -56,6 +57,10 @@ public class WebDriveController {
     private final AtomicReference<double[]> commandBuf = new AtomicReference<>(new double[3]);
     private final AtomicBoolean[] buttons = new AtomicBoolean[6]; // A,B,X,Y,LB,RB
     private final AtomicLong lastCommandMs = new AtomicLong(0);
+
+    // Written by robot thread (DemoIntake), read by HTTP thread (state endpoint)
+    private final AtomicInteger heldFuelBuf      = new AtomicInteger(0);
+    private final AtomicBoolean intakeExtendedBuf = new AtomicBoolean(false);
 
     // Pending DriverStation control — written by HTTP, applied on robot thread.
     // Nullable: null means "not set in this POST" so the robot thread skips that field.
@@ -172,6 +177,11 @@ public class WebDriveController {
         return new Trigger(getButton(idx));
     }
 
+    /** Called by {@link DemoIntake} on the robot thread each cycle. */
+    public void setHeldFuel(int count)          { heldFuelBuf.set(count); }
+    /** Called by {@link DemoIntake} on the robot thread each cycle. */
+    public void setIntakeExtended(boolean ext)  { intakeExtendedBuf.set(ext); }
+
     private long age() { return System.currentTimeMillis() - lastCommandMs.get(); }
 
     // ---- HTTP handlers (all run on executor thread pool) ----
@@ -245,9 +255,11 @@ public class WebDriveController {
             "{\"x\":%.4f,\"y\":%.4f,\"headingRad\":%.4f," +
             "\"maxLinear\":%.4f,\"maxAngular\":%.4f," +
             "\"fieldWidth\":16.540988,\"fieldHeight\":8.21," +
-            "\"enabled\":%b,\"alliance\":\"%s\",\"connected\":%b}",
+            "\"enabled\":%b,\"alliance\":\"%s\",\"connected\":%b," +
+            "\"heldFuel\":%d,\"intakeExtended\":%b}",
             p[0], p[1], p[2], maxLinearMps, maxAngularRps,
-            enabledBuf.get(), allianceBuf.get(), isConnected());
+            enabledBuf.get(), allianceBuf.get(), isConnected(),
+            heldFuelBuf.get(), intakeExtendedBuf.get());
         respond(ex, 200, "application/json", json);
     }
 

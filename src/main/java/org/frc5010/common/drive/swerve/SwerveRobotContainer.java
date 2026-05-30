@@ -76,6 +76,9 @@ public abstract class SwerveRobotContainer {
   /** Browser-based field visualization and virtual controller. Non-null only in simulation. */
   protected WebDriveController webController = null;
 
+  /** Demo intake/scoring simulation driven by LB/RB/A/B/X/Y web buttons. Non-null only in simulation. */
+  protected DemoIntake demoIntake = null;
+
   // Stored when constructed from a RobotProfile; null when constructed from a bare drive.
   private final RobotProfile profile;
 
@@ -192,6 +195,7 @@ public abstract class SwerveRobotContainer {
     if (RobotBase.isSimulation()) {
       webController = new WebDriveController(drive);
       webController.start();
+      demoIntake = new DemoIntake(webController);
 
       // Apply pending enable/alliance changes from the web interface on a command that
       // runs even while the robot is disabled. The drive default command cannot do this:
@@ -211,6 +215,9 @@ public abstract class SwerveRobotContainer {
     drive.setDefaultCommand(
         Commands.run(
             () -> {
+              // Run intake/scoring demo logic every enabled cycle.
+              if (demoIntake != null) demoIntake.periodic(drive.getPose());
+
               double flip =
                   DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
                       ? -1.0 : 1.0;
