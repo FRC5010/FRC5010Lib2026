@@ -139,13 +139,14 @@ const state = {
   maxLinear: 4.5, maxAngular: 6.283,
   fieldWidth: 16.540988, fieldHeight: 8.21,
   enabled: false, alliance: 'Blue', connected: false,
-  heldFuel: 0, intakeExtended: false
+  heldFuel: 0, intakeExtended: false, scoredFuel: 0
 };
 
 let leftX = 0, leftY = 0, rightX = 0;
 const buttonHeld = [false, false, false, false, false, false];
 const keys = {};
-let gamePieces = [];  // [{x, y}, ...] — updated every 50 ms from /api/gamepieces
+let gamePieces = [];        // [{x, y}] grounded Fuel — from /api/gamepieces
+let flyingPieces = [];     // [{x, y}] in-flight Fuel projectiles
 
 // ---- Keyboard ----
 document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
@@ -493,18 +494,32 @@ function drawAprilTags(ctx, W, H) {
   }
 }
 
-// Draw each Fuel piece as a small disc at its current physics position.
-// Pieces move when the robot collides with them.
+// Draw grounded Fuel pieces and in-flight projectiles.
 function drawGamePieces(ctx, W, H) {
   const rPx = Math.max(4, mToPx(0.075, W, H));
+
+  // Grounded pieces — solid yellow disc
   ctx.strokeStyle = 'rgba(120,90,0,0.8)';
   ctx.lineWidth = 1;
   for (const p of gamePieces) {
     const { cx, cy } = fieldPt(p.x, p.y, W, H);
     ctx.beginPath();
     ctx.arc(cx, cy, rPx, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(245,210,40,0.95)';  // Fuel yellow (game-accurate)
+    ctx.fillStyle = 'rgba(245,210,40,0.95)';
     ctx.fill();
+    ctx.stroke();
+  }
+
+  // Flying projectiles — smaller, brighter, white-ringed disc
+  const rFly = Math.max(3, mToPx(0.055, W, H));
+  for (const p of flyingPieces) {
+    const { cx, cy } = fieldPt(p.x, p.y, W, H);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rFly, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(255,230,80,1.0)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,200,0.9)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 }
@@ -612,13 +627,15 @@ function drawField() {
 
   ctx.restore();
 
-  // ---- Fuel count overlay (top-left of field render area) ----
+  // ---- Fuel overlay (top-left of field render area) ----
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(6, 6, 88, 22);
-  ctx.fillStyle = 'rgba(245,210,40,0.95)';
+  ctx.fillRect(6, 6, 130, 38);
   ctx.font = 'bold 13px monospace';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('Fuel: ' + state.heldFuel, 12, 17);   // robot transform
+  ctx.fillStyle = 'rgba(245,210,40,0.95)';
+  ctx.fillText('Held:   ' + state.heldFuel,   12, 17);
+  ctx.fillStyle = 'rgba(100,230,100,0.95)';
+  ctx.fillText('Scored: ' + state.scoredFuel,  12, 33);   // robot transform
 
   ctx.restore();   // field-render offset (letterbox)
 }
@@ -632,7 +649,8 @@ setInterval(async () => {
 
   // Fetch game piece positions (fire-and-forget; drawn on next frame)
   fetch('/api/gamepieces').then(r => r.json()).then(d => {
-    gamePieces = (d.pieces || []).map(p => ({ x: p[0], y: p[1] }));
+    gamePieces   = (d.pieces  || []).map(p => ({ x: p[0], y: p[1] }));
+    flyingPieces = (d.flying  || []).map(p => ({ x: p[0], y: p[1] }));
   }).catch(() => {});
 
   // POST drive command (fire-and-forget)
