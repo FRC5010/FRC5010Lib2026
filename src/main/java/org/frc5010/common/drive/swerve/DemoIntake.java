@@ -61,9 +61,9 @@ public class DemoIntake {
    * @param robotPose current robot pose from the drive subsystem
    */
   public void periodic(Pose2d robotPose) {
-    // ---- intake: extended while LB is held; RB forces retract ----
-    intakeExtended = wdc.getButton(4).getAsBoolean();
-    if (wdc.getButton(5).getAsBoolean()) intakeExtended = false;
+    // ---- intake: LB click latches extended; RB click retracts ----
+    if (wdc.getButton(4).getAsBoolean() && !prevBtn[4]) intakeExtended = true;
+    if (wdc.getButton(5).getAsBoolean() && !prevBtn[5]) intakeExtended = false;
 
     if (intakeExtended) collectNearbyFuel(robotPose);
 
@@ -74,6 +74,9 @@ public class DemoIntake {
       if (held && !prevBtn[i]) fireFuel(robotPose, speeds[i]);
       prevBtn[i] = held;
     }
+    // Update rising-edge state for LB/RB after they've been consumed above.
+    prevBtn[4] = wdc.getButton(4).getAsBoolean();
+    prevBtn[5] = wdc.getButton(5).getAsBoolean();
 
     // Push state to WebDriveController atomics so /api/state includes them.
     wdc.setHeldFuel(heldFuel);
