@@ -61,8 +61,8 @@ public class DemoIntake {
    * @param robotPose current robot pose from the drive subsystem
    */
   public void periodic(Pose2d robotPose) {
-    // ---- intake toggle (LB = extend, RB = retract) ----
-    if (wdc.getButton(4).getAsBoolean()) intakeExtended = true;
+    // ---- intake: extended while LB is held; RB forces retract ----
+    intakeExtended = wdc.getButton(4).getAsBoolean();
     if (wdc.getButton(5).getAsBoolean()) intakeExtended = false;
 
     if (intakeExtended) collectNearbyFuel(robotPose);
