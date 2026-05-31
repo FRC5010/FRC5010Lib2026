@@ -28,17 +28,15 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * <ul>
  *   <li>LB (idx 4) — click to latch intake extended
  *   <li>RB (idx 5) — click to retract intake
- *   <li>A  (idx 0) — fire one Fuel at power level 1 toward the nearest hub
- *   <li>B  (idx 1) — fire at power level 2
- *   <li>X  (idx 2) — fire at power level 3
- *   <li>Y  (idx 3) — fire at power level 4 (highest, longest range)
+ *   <li>A  (idx 0) — fire one Fuel; speed and loft angle are computed
+ *                    automatically to reach the current target
  * </ul>
  *
- * <p>Each power level maps to a 45° arc at 5×speed m/s (levels 1–4 → 5–20 m/s).
- * At 45° the maximum horizontal range is v²/g, so:
- * level 1 ≈ 2.5 m, level 2 ≈ 10 m, level 3 ≈ 23 m, level 4 ≈ 41 m.
- * Low-power shots fall short and become collectible ground pieces again;
- * high-power shots reach both hubs from anywhere on the field.
+ * <p>When inside the alliance zone (X &lt; 3.952 m for Blue, X &gt; 12.589 m for
+ * Red) the shot is aimed at the alliance hub at a steep 65° arc. Outside the
+ * zone the shot lobs toward the zone-accumulation centre at 40° so fuel builds
+ * up where the robot can collect it later.  In both cases launch speed is
+ * computed from the ballistic formula v = √(g·d² / (2·cos²θ·(d·tanθ − Δh))).
  *
  * <p>Must be called from the robot thread (inside the drive default command).
  */
@@ -52,9 +50,12 @@ public class DemoIntake {
   private static final double INTAKE_RADIUS_M    = 0.15;
 
   // ---- projectile launch parameters ----
-  private static final double SPEED_MULTIPLIER = 5.0;  // user level 1–4 → 5–20 m/s
-  private static final double LAUNCH_HEIGHT_M  = 0.4;  // shooter height above ground
-  private static final double ELEVATION_DEG    = 45.0; // flat-optimal arc
+  private static final double LAUNCH_HEIGHT_M         = 0.4;    // shooter height above ground
+  private static final double HUB_SHOT_ELEVATION_DEG  = 65.0;   // steep arc into elevated hub
+  private static final double ZONE_SHOT_ELEVATION_DEG = 40.0;   // flatter lob toward zone centre
+  private static final double GRAVITY_MPS2             = 9.80665;
+  private static final double MIN_LAUNCH_SPEED_MPS    = 2.0;
+  private static final double MAX_LAUNCH_SPEED_MPS    = 20.0;
 
   // ---- hub 3D positions (decoded from RebuiltHub static initialiser) ----
   // blueHubPose / redHubPose: Translation3d(x, y, 1.5748) — Z = 62" scoring height
@@ -91,14 +92,10 @@ public class DemoIntake {
 
     if (intakeExtended) collectNearbyFuel(robotPose);
 
-    // ---- fire buttons (rising-edge, A/B/X/Y → power levels 1/2/3/4) ----
-    for (int i = 0; i < 4; i++) {
-      boolean held = wdc.getButton(i).getAsBoolean();
-      if (held && !prevBtn[i]) fireFuel(robotPose, i + 1);
-      prevBtn[i] = held;
-    }
-    prevBtn[4] = wdc.getButton(4).getAsBoolean();
-    prevBtn[5] = wdc.getButton(5).getAsBoolean();
+    // ---- A button fires (rising-edge); B/X/Y unused ----
+    boolean heldA = wdc.getButton(0).getAsBoolean();
+    if (heldA && !prevBtn[0]) fireFuel(robotPose);
+    for (int i = 0; i < 6; i++) prevBtn[i] = wdc.getButton(i).getAsBoolean();
 
     // Push state to WebDriveController atomics so /api/state includes them.
     wdc.setHeldFuel(heldFuel);
@@ -127,17 +124,13 @@ public class DemoIntake {
     }
   }
 
-  private void fireFuel(Pose2d pose, int powerLevel) {
+  private void fireFuel(Pose2d pose) {
     if (heldFuel <= 0) return;
     heldFuel--;
 
-    double launchSpeedMps = powerLevel * SPEED_MULTIPLIER;
-
-    // Determine which alliance hub to use (own alliance, not nearest).
     boolean isBlue = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue;
     Translation3d hubTarget = isBlue ? BLUE_HUB_3D : RED_HUB_3D;
 
-    // Check if the robot is inside its alliance zone (can score directly at the hub).
     double robotX = pose.getX();
     boolean inZone = isBlue
         ? robotX < ZONE_DEPTH_M
@@ -149,33 +142,50 @@ public class DemoIntake {
         pose.getX() + BUMPER_HALF_M * Math.cos(theta),
         pose.getY() + BUMPER_HALF_M * Math.sin(theta));
 
-    // Aim at the hub when in zone; otherwise aim toward the zone accumulation point.
-    Translation3d target3d = inZone ? hubTarget : (isBlue ? BLUE_ZONE_TARGET : RED_ZONE_TARGET);
-    double dx = target3d.getX() - launchPos.getX();
-    double dy = target3d.getY() - launchPos.getY();
-    Rotation2d heading = new Rotation2d(dx, dy);
+    Translation3d target3d  = inZone ? hubTarget : (isBlue ? BLUE_ZONE_TARGET : RED_ZONE_TARGET);
+    double elevationDeg     = inZone ? HUB_SHOT_ELEVATION_DEG : ZONE_SHOT_ELEVATION_DEG;
+
+    double dx   = target3d.getX() - launchPos.getX();
+    double dy   = target3d.getY() - launchPos.getY();
+    double hDist = Math.sqrt(dx * dx + dy * dy);
+    double dz   = target3d.getZ() - LAUNCH_HEIGHT_M;
+    double launchSpeedMps = computeLaunchSpeed(hDist, dz, elevationDeg);
 
     RebuiltFuelOnFly projectile = new RebuiltFuelOnFly(
         launchPos,
         new Translation2d(),
         new ChassisSpeeds(),
-        heading,
+        new Rotation2d(dx, dy),
         Meters.of(LAUNCH_HEIGHT_M),
         MetersPerSecond.of(launchSpeedMps),
-        Degrees.of(ELEVATION_DEG));
+        Degrees.of(elevationDeg));
 
     if (inZone) {
-      // In-zone: register scoring callback — hit the hub = counted as scored.
       final AtomicInteger scored = scoredFuelCount;
       projectile
           .withTargetPosition(() -> hubTarget)
           .withTargetTolerance(new Translation3d(RebuiltHub.GoalRadius, RebuiltHub.GoalRadius, 0.4))
           .withHitTargetCallBack(scored::incrementAndGet);
     }
-    // Always become a ground piece on landing so misses (and out-of-zone shots) are collectible.
     projectile.enableBecomesGamePieceOnFieldAfterTouchGround();
-
     projectile.launch();
     SimulatedArena.getInstance().addGamePieceProjectile(projectile);
+  }
+
+  /**
+   * Returns the launch speed (m/s) required to reach a target at horizontal distance
+   * {@code d} metres and height delta {@code dz} metres, when fired at {@code elevationDeg}.
+   * Clamped to [{@link #MIN_LAUNCH_SPEED_MPS}, {@link #MAX_LAUNCH_SPEED_MPS}].
+   *
+   * <p>Derivation: d = v·cosθ·t ; dz = v·sinθ·t − ½g·t²
+   * → v² = g·d² / (2·cos²θ·(d·tanθ − dz))
+   */
+  private static double computeLaunchSpeed(double d, double dz, double elevationDeg) {
+    double theta = Math.toRadians(elevationDeg);
+    double cosT  = Math.cos(theta);
+    double denom = 2.0 * cosT * cosT * (d * Math.tan(theta) - dz);
+    if (denom <= 0 || d < 0.01) return MIN_LAUNCH_SPEED_MPS;
+    double v2 = GRAVITY_MPS2 * d * d / denom;
+    return Math.max(MIN_LAUNCH_SPEED_MPS, Math.min(MAX_LAUNCH_SPEED_MPS, Math.sqrt(v2)));
   }
 }
