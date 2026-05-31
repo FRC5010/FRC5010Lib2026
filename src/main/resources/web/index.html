@@ -12,20 +12,26 @@
     -webkit-tap-highlight-color: transparent;
   }
   /* ---- field area (canvas + sidebar) ---- */
+  /* The field is portrait (aspect ~0.50), so in a landscape window it is
+     pillar-boxed with dark bars on both sides. The sidebar is overlaid on the
+     left bar (absolute, out of flow) so the canvas spans the FULL window width
+     and the field centres in the window — not in a canvas shrunk by the sidebar. */
   #field-area {
-    flex: 1; min-height: 0; display: flex; flex-direction: row;
+    flex: 1; min-height: 0; position: relative;
   }
   #field-sidebar {
-    width: 60px; background: #1a1a1a; border-right: 1px solid #2a2a2a;
+    position: absolute; left: 0; top: 0; bottom: 0; z-index: 2;
+    width: 60px; background: rgba(20,20,20,0.6);
     display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 16px; flex-shrink: 0;
+    justify-content: center; gap: 16px;
+    pointer-events: none;
   }
   .stat-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .stat-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
   .stat-value { font-size: 20px; font-weight: bold; }
   #held-count   { color: rgba(245,210,40,0.95); }
   #scored-count { color: rgba(100,230,100,0.95); }
-  #field-canvas { flex: 1; min-height: 0; display: block; }
+  #field-canvas { display: block; width: 100%; height: 100%; }
 
   /* ---- controls row ---- */
   #controls {
@@ -590,14 +596,6 @@ function drawField() {
     W = cw; H = Math.round(cw / aspect);
     offX = 0; offY = Math.round((ch - H) / 2);
   }
-
-  // The canvas sits to the RIGHT of the fixed-width sidebar, so centering the
-  // field within the canvas alone leaves it offset right of the window centre.
-  // Shift the field left by half the sidebar width so it is centred relative to
-  // the whole window, clamped so it never slides under the sidebar (offX >= 0).
-  const sidebar = document.getElementById('field-sidebar');
-  const sidebarW = sidebar ? sidebar.offsetWidth : 0;
-  if (offX > 0) offX = Math.max(0, offX - Math.round(sidebarW / 2));
 
   // Dark fill behind the letterbox bars (matches the page background).
   ctx.fillStyle = '#111';
