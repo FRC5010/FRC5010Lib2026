@@ -419,6 +419,7 @@ See `/new-vision-camera` for the step-by-step wiring guide.
 - `/new-robot-profile` — step-by-step guide for wiring a real robot's hardware IO into `RealRobotProfile`
 - `/diagnose-log` — agent workflow for reading `.wpilog` files, interpreting anomaly flags, replay, and performance comparison
 - `/new-vision-camera` — step-by-step guide for adding a PhotonVision or Limelight camera to the Vision subsystem
+- `/new-game-field` — build a 2D web field + custom IronMaple arena (barriers + game pieces) from a new season's game manual, for when IronMaple hasn't shipped the season arena yet
 - `/validate-replay` — validate replay fidelity after non-trivial logging changes (produce log → replay → check anomalies)
 
 ---
