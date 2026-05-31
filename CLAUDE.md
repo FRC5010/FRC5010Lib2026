@@ -42,14 +42,14 @@ frc.robot.RobotContainer (concrete — extends SwerveRobotContainer)
 
 ---
 
-## Test pyramid (59/59 passing as of 2026-05-26)
+## Test pyramid
 
-| Layer | Class | Factory method | IO impl | Tests |
-|-------|-------|----------------|---------|-------|
-| 1 — unit | `SwerveConstantsTest`, `SwerveFactoryModeTest`, `TunableGainsTest` | — | — | 33 |
-| 2 — subsystem sim | `AkitSwerveDriveTest`, `VisionSubsystemTest` | `buildWithoutPhysics()` / stub IO | `ModuleIOSim` / `VisionIO` stub | 13 |
-| 3 — physics integration | `AkitSwerveDriveSimPhysicsTest`, `VisionSimIntegrationTest` | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` | 10 |
-| 4 — visual / interactive | `RobotContainer` visual-test sequence (6 steps incl. vision correction) | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` | visual |
+| Layer | Class | Factory method | IO impl |
+|-------|-------|----------------|---------|
+| 1 — unit | `SwerveConstantsTest`, `SwerveFactoryModeTest`, `TunableGainsTest`, `JoystickAxisTest` | — | — |
+| 2 — subsystem sim | `AkitSwerveDriveTest`, `VisionSubsystemTest` | `buildWithoutPhysics()` / stub IO | `ModuleIOSim` / `VisionIO` stub |
+| 3 — physics integration | `AkitSwerveDriveSimPhysicsTest`, `VisionSimIntegrationTest` | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` |
+| 4 — visual / interactive | `RobotContainer` visual-test sequence (6 steps incl. vision correction) | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` |
 
 Layers 1–3 extend `SimTestBase` (deterministic FPGA clock via `SimHooks`).
 Layer 4 runs as a full robot program via `./gradlew simulateJava`; it is **never** in CI.
@@ -233,6 +233,11 @@ Symptom if either is missing: the web Enable button appears to toggle but the ro
 | Subsystem (periodic, simulationPeriodic) | `src/main/java/org/frc5010/common/drive/swerve/akit/AkitSwerveDrive.java` |
 | Base robot container (keyboard drive, auto, alliance pose) | `src/main/java/org/frc5010/common/drive/swerve/SwerveRobotContainer.java` |
 | Visual auto test sequence | `src/main/java/org/frc5010/common/drive/swerve/SwerveVisualTest.java` |
+| Joystick axis transform pipeline | `src/main/java/org/frc5010/common/drive/swerve/JoystickAxis.java` |
+| 2-D drive vector (combines two JoystickAxis) | `src/main/java/org/frc5010/common/drive/swerve/DriveVector.java` |
+| Generic configurable controller (port-based) | `src/main/java/org/frc5010/common/drive/swerve/ConfigurableController.java` |
+| Xbox-specific named accessors | `src/main/java/org/frc5010/common/drive/swerve/XboxConfigurableController.java` |
+| Layer 1 unit tests (JoystickAxis + DriveVector) | `src/test/java/org/frc5010/common/unit/JoystickAxisTest.java` |
 | Robot profile interface | `src/main/java/org/frc5010/common/drive/swerve/RobotProfile.java` |
 | Sim robot profile (CI / library dev) | `src/main/java/org/frc5010/common/drive/swerve/SimRobotProfile.java` |
 | Real robot profile placeholder | `src/main/java/frc/robot/RealRobotProfile.java` |
@@ -328,7 +333,7 @@ When creating a new environment at [claude.ai/code](https://claude.ai/code), set
 
 **Before committing any change to the common library (`src/main/java/org/frc5010/common/...`):**
 
-1. **Run the full test suite** — `.\gradlew.bat test` — all 59 tests must pass. Never weaken an assertion to force a pass; fix the root cause.
+1. **Run the full test suite** — `.\gradlew.bat test` — all tests must pass. Never weaken an assertion to force a pass; fix the root cause.
 2. Update any affected slash command in `.claude/commands/` (e.g. `new-sim-test`, `new-robot-profile`, `diagnose-log`, `validate-replay`).
 3. Update the relevant `docs/` page (`configuration`, `architecture`, `testing`, `simulation`, or `robot-profiles`).
 4. Update `CLAUDE.md` if a gotcha, file location, or architecture section is no longer accurate.
