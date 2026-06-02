@@ -29,20 +29,13 @@ public class RealRobot extends SwerveRobotContainer {
     super.configureBindings();
     if (!RobotBase.isSimulation()) return;
 
-    // controller.leftBumper() / .rightBumper() / .a() automatically OR with the
-    // corresponding web UI buttons — no manual webButton() needed.
     demoIntake = new DemoIntake(
         drive::getPose,
         controller.leftBumper(),
         controller.rightBumper(),
         controller.a());
 
-    if (webController != null) {
-      webController.bindDemoState(
-          demoIntake::getHeldFuel,
-          demoIntake::isIntakeExtended,
-          demoIntake::getScoredCount);
-    }
+    demoIntake.bindWebState(webControl);
     // No manual scheduling — DemoIntake sets its own default command in its constructor.
   }
 }

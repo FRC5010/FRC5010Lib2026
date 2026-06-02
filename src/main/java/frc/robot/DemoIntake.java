@@ -125,6 +125,18 @@ public class DemoIntake extends SubsystemBase {
   /** Count of Fuel pieces scored in the hub since startup. Safe to call from any thread. */
   public int getScoredCount()    { return scoredFuelCount.get(); }
 
+  /**
+   * Binds this intake's state suppliers to the web UI so {@code /api/state} reflects
+   * held fuel, intake extension, and scored count. No-op when {@code webControl} is null.
+   *
+   * @param webControl the active web control facade, or {@code null} if not in web UI mode
+   */
+  public void bindWebState(org.frc5010.common.sim.WebControl webControl) {
+    if (webControl != null) {
+      webControl.bindDemoState(this::getHeldFuel, this::isIntakeExtended, this::getScoredCount);
+    }
+  }
+
   // ---- private helpers ----
 
   private void collectNearbyFuel(Pose2d pose) {

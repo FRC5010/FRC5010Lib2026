@@ -19,9 +19,10 @@ import edu.wpi.first.wpilibj2.command.button.Trigger;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
 import org.frc5010.common.input.DriveVector;
 import org.frc5010.common.input.XboxConfigurableController;
+import org.frc5010.common.input.WebXboxController;
 import org.frc5010.common.input.JoystickAxis;
 import org.frc5010.common.sim.SwerveVisualTest;
-import org.frc5010.common.sim.WebDriveController;
+import org.frc5010.common.sim.WebControl;
 import org.frc5010.common.vision.Vision;
 
 /**
@@ -76,8 +77,8 @@ public abstract class SwerveRobotContainer {
    */
   protected Vision vision = null;
 
-  /** Browser-based field visualization and virtual controller. Non-null only when {@code -PwebUI} is set. */
-  protected WebDriveController webController = null;
+  /** Web UI control facade. Non-null only when {@code -PwebUI} is set. */
+  protected WebControl webControl = null;
 
   // Stored when constructed from a RobotProfile; null when constructed from a bare drive.
   private final RobotProfile profile;
@@ -128,7 +129,9 @@ public abstract class SwerveRobotContainer {
     this.profile  = profile;
     this.drive    = profile.createDrive();
     this.vision   = profile.createVision(this.drive);
-    this.controller = new XboxConfigurableController(controllerPort);
+    boolean webUI = RobotBase.isSimulation() && Boolean.getBoolean("webUI");
+    this.controller = webUI ? new WebXboxController(controllerPort)
+                            : new XboxConfigurableController(controllerPort);
     configureBindings();
   }
 
@@ -156,7 +159,9 @@ public abstract class SwerveRobotContainer {
   protected SwerveRobotContainer(AkitSwerveDrive drive, int controllerPort) {
     this.profile  = null;
     this.drive    = drive;
-    this.controller = new XboxConfigurableController(controllerPort);
+    boolean webUI = RobotBase.isSimulation() && Boolean.getBoolean("webUI");
+    this.controller = webUI ? new WebXboxController(controllerPort)
+                            : new XboxConfigurableController(controllerPort);
     configureBindings();
   }
 
@@ -217,23 +222,8 @@ public abstract class SwerveRobotContainer {
    */
   protected void configureBindings() {
     if (RobotBase.isSimulation() && Boolean.getBoolean("webUI")) {
-      webController = new WebDriveController(drive);
-      webController.start();
-
-      // Inject web button suppliers so controller.leftBumper() / .a() etc. auto-OR
-      // with the corresponding web UI button — no manual || webButton(n) needed.
-      java.util.function.BooleanSupplier[] webBtns = new java.util.function.BooleanSupplier[6];
-      for (int i = 0; i < webBtns.length; i++) webBtns[i] = webController.getButton(i);
-      controller.setWebInputs(webBtns);
-
-      // Apply pending enable/alliance changes from the web interface on a command that
-      // runs even while the robot is disabled. The drive default command cannot do this:
-      // WPILib does not run subsystem default commands while disabled, so the very click
-      // that enables the robot would never be processed (catch-22).
-      CommandScheduler.getInstance().schedule(
-          Commands.run(() -> webController.applyPendingControl(this::resetToAllianceStart))
-              .ignoringDisable(true)
-              .withName("WebControlApply"));
+      // WebXboxController was created in the constructor; cast is guaranteed safe.
+      webControl = new WebControl(drive, (WebXboxController) controller, this::resetToAllianceStart);
     }
 
     JoystickAxis forward  = controller.axis(1).negate().deadzone(0.05);
@@ -248,15 +238,15 @@ public abstract class SwerveRobotContainer {
                   DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
                       ? -1.0 : 1.0;
 
-              if (webController != null && webController.isConnected()) {
-                ChassisSpeeds web = webController.getChassisSpeeds();
+              if (webControl != null && webControl.isConnected()) {
+                ChassisSpeeds web = webControl.getChassisSpeeds();
                 drive.runVelocityFieldRelative(new ChassisSpeeds(
                     flip * web.vxMetersPerSecond,
                     flip * web.vyMetersPerSecond,
                     web.omegaRadiansPerSecond));
                 return;
               }
-              if (webController != null && webController.isStale()) {
+              if (webControl != null && webControl.isStale()) {
                 drive.stop();
                 return;
               }
@@ -277,10 +267,10 @@ public abstract class SwerveRobotContainer {
   /**
    * Returns a {@link Trigger} that is active while web interface button {@code idx} is held.
    * Indices: 0=A, 1=B, 2=X, 3=Y, 4=LB, 5=RB.
-   * Returns a never-active trigger when not in simulation.
+   * Returns a never-active trigger when not in simulation or web UI is not active.
    */
   public Trigger webButton(int idx) {
-    return new Trigger(webController != null ? webController.getButton(idx) : () -> false);
+    return webControl != null ? webControl.button(idx) : new Trigger(() -> false);
   }
 
   // ---------------------------------------------------------------------------
