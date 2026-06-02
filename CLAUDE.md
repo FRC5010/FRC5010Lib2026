@@ -248,6 +248,11 @@ AdvantageKit's annotation processor generates logging code that expects primitiv
 | Limelight IO via YALL (REAL) | `src/main/java/org/frc5010/common/vision/VisionIOLimelight.java` |
 | Vision sim IO (extends VisionIOPhoton) | `src/main/java/org/frc5010/common/vision/VisionIOSim.java` |
 | Vision Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/VisionSubsystemTest.java` |
+| Calibration result record | `src/main/java/org/frc5010/common/drive/swerve/calibration/CalibrationResult.java` |
+| Calibration data-collection routine | `src/main/java/org/frc5010/common/drive/swerve/calibration/MotorCalibrationRoutine.java` |
+| Calibration Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/DriveCalibrationTest.java` |
+| Calibration Layer 3 tests | `src/test/java/org/frc5010/common/subsystem/DriveCalibrationSimPhysicsTest.java` |
+| Calibration guide (student + agent) | `docs/calibration.md` |
 
 ---
 
@@ -320,7 +325,7 @@ When creating a new environment at [claude.ai/code](https://claude.ai/code), set
 
 **Before committing any change to the common library (`src/main/java/org/frc5010/common/...`):**
 
-1. **Run the full test suite** — `.\gradlew.bat test` — all 59 tests must pass. Never weaken an assertion to force a pass; fix the root cause.
+1. **Run the full test suite** — `.\gradlew.bat test` — all 69 tests must pass (59 original + 10 calibration). Never weaken an assertion to force a pass; fix the root cause.
 2. Update any affected slash command in `.claude/commands/` (e.g. `new-sim-test`, `new-robot-profile`, `diagnose-log`, `validate-replay`).
 3. Update the relevant `docs/` page (`configuration`, `architecture`, `testing`, `simulation`, or `robot-profiles`).
 4. Update `CLAUDE.md` if a gotcha, file location, or architecture section is no longer accurate.
@@ -412,3 +417,4 @@ See `/new-vision-camera` for the step-by-step wiring guide.
 - `/diagnose-log` — agent workflow for reading `.wpilog` files, interpreting anomaly flags, replay, and performance comparison
 - `/new-vision-camera` — step-by-step guide for adding a PhotonVision or Limelight camera to the Vision subsystem
 - `/validate-replay` — validate replay fidelity after non-trivial logging changes (produce log → replay → check anomalies)
+- `/calibrate-drive` — agent-guided step-by-step motor calibration (sim ramp → SysId → apply gains to TunerX or DriveConstants)
