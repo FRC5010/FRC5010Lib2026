@@ -201,23 +201,31 @@ Simulation lets you verify your constants make sense before touching the robot.
 ./gradlew simulateJava
 ```
 
-WPILib's **Glass** window opens. You will see:
+### Running locally (VS Code on your computer)
 
-- A **Driver Station** panel (bottom-left area) — this controls enabled/disabled state
-- A **NetworkTables** panel with live robot data
+WPILib's **Glass** window opens automatically. You will see:
 
-### Connect AdvantageScope for a 3D view
+- A **Driver Station** panel (bottom-left or a separate floating panel) — controls enabled/disabled state and match mode
+- A **Field2d** widget showing your robot's position on the field
+- A **NetworkTables** panel with live signal values
 
-1. Open AdvantageScope.
-2. **File → Connect to Robot**
-3. Enter IP address `127.0.0.1` and port `5810`.
-4. In the left panel, drag `RealOutputs/Drive/Pose` onto the 3D field view.
+**Connect AdvantageScope for a 3D view:**
 
-You should see your robot's box on the field.
+1. Open AdvantageScope (install from [Mechanical Advantage's GitHub releases page](https://github.com/Mechanical-Advantage/AdvantageScope/releases) if you haven't already).
+2. Click **File → Connect to Robot**, enter `localhost` as the host, leave the port at the default (`5810`).
+3. In the left signal panel, find `RealOutputs/Drive/Pose` and drag it onto the 3D field canvas.
 
-### Drive with the keyboard
+You should see a robot-shaped box on the field at your configured starting position.
 
-In Glass, open **NetworkTables → Joysticks → Joystick[0]**. Axes 0, 1, 2 control strafe-left/right, forward/back, and rotation. However, the easiest way to test motion is the visual auto-test:
+**Enable the robot in Glass:**
+
+1. In Glass, find the **Driver Station** panel (it may be a separate floating window titled "Driver Station").
+2. Set the mode to **Teleop** and click **Enable**.
+3. Use your keyboard or a connected gamepad to drive. The Glass **NetworkTables** panel shows joystick axes in real time under `Joysticks/0/`.
+
+### Visual auto-test (simplest way to verify motion)
+
+The visual auto-test runs a scripted sequence — forward, strafe, rotate — and automatically enables the robot. Use this to confirm all four modules are wired correctly without needing a gamepad.
 
 ```powershell
 # Windows
@@ -227,13 +235,27 @@ In Glass, open **NetworkTables → Joysticks → Joystick[0]**. Axes 0, 1, 2 con
 ./gradlew simulateJava -PvisualTest
 ```
 
-1. Once Glass opens, find **Driver Station** and set mode to **Autonomous**.
-2. Click **Enable**.
-3. The robot will drive forward, strafe, rotate, and return — verifying basic motion in each axis.
+Once Glass opens, set the Driver Station to **Autonomous** mode and click **Enable**. The robot drives a pre-programmed path over about 10 seconds.
 
-**If the robot does not move:** make sure you clicked Enable. In simulation, the robot starts disabled, just like a real match.
+### Running in Codespaces or a web environment (headless)
 
-**If the motion looks wrong (spinning in place, going sideways when commanded forward):** your module front-left/front-right/back-left/back-right assignments may be in the wrong order. See the [Troubleshooting](#troubleshooting) section.
+If you're using GitHub Codespaces or the claude.ai/code web environment, there is no display for Glass. Use the visual-test flag, which auto-enables the robot so no manual Driver Station click is needed:
+
+```bash
+xvfb-run ./gradlew simulateJava -PvisualTest
+```
+
+`xvfb-run` provides a virtual display so WPILib can start without crashing — you won't see Glass, but the simulation runs. To observe what's happening:
+
+1. In VS Code's **Ports** panel, find port **5810**. Hover over it and click the globe icon to copy the forwarded address.
+2. In AdvantageScope on your local laptop: **File → Connect to Robot**, paste the forwarded hostname (everything after `https://`, without the slash), port `5810`.
+3. AdvantageScope receives the live data and renders the robot in 3D.
+
+Alternatively, the simulation writes a `.wpilog` file to `logs/` when it finishes. Download it via the VS Code file explorer and open it in AdvantageScope with **File → Open Log** to review the run offline.
+
+**If the robot does not move during the visual test:** confirm you used `-PvisualTest`; without it, the robot starts disabled and nothing will happen until you manually click Enable.
+
+**If the motion looks wrong (spinning in place, going sideways when commanded forward):** your FL/FR/BL/BR module assignments are probably in the wrong order. See the [Troubleshooting](#troubleshooting) section.
 
 ---
 
@@ -340,41 +362,69 @@ Before enabling for the first time on hardware, go through this list:
 
 ## Step 8 — Add a gamepad
 
-The default wiring uses keyboard controls in simulation. For a real match you need a gamepad (Xbox, PS4, or Logitech).
+The default wiring uses keyboard controls (WASD + ER) mapped to joystick port 0 in simulation. For a real match you need an Xbox (or similar) controller at Driver Station port 0.
 
-In `RobotContainer.java`, override `configureBindings()`:
+The library provides `XboxConfigurableController` — a wrapper that gives each button and axis a named method and applies a chainable transform pipeline (deadzone, response curve, scaling). Override `configureBindings()` in `RobotContainer.java` to replace the keyboard drive with it:
 
 ```java
 @Override
 protected void configureBindings() {
-    super.configureBindings();  // keeps keyboard drive in sim
+    // Do NOT call super.configureBindings() — this replaces the default command entirely.
+    // (The keyboard drive uses axis 2 for rotation; Xbox has the left trigger on axis 2.
+    //  Using super would give you left-trigger rotation, which is not what you want.)
 
-    // Replace port 0 with wherever your driver gamepad is plugged in
-    XboxController driverController = new XboxController(0);
+    XboxConfigurableController driver = new XboxConfigurableController(0);
 
-    // Field-relative drive: left stick = translation, right stick X = rotation
-    drive.setDefaultCommand(drive.runVelocityFieldRelative(
-        () -> -driverController.getLeftY(),   // forward/back (inverted)
-        () -> -driverController.getLeftX(),   // strafe left/right (inverted)
-        () -> -driverController.getRightX()   // rotation (inverted)
-    ));
+    // Left stick = translation, right stick X = rotation.
+    // negate() corrects WPILib's convention (up = negative Y, left = negative X).
+    // power(2.0) gives a gentle-start response curve.
+    // unitCircle() prevents diagonal inputs from exceeding the robot's max speed.
+    JoystickAxis forward  = driver.leftY().negate().deadzone(0.05).power(2.0);
+    JoystickAxis strafe   = driver.leftX().negate().deadzone(0.05).power(2.0);
+    JoystickAxis rotation = driver.rightX().negate().deadzone(0.10);
+    DriveVector translate = DriveVector.of(forward, strafe).unitCircle();
 
-    // A button: reset heading to face forward
-    new JoystickButton(driverController, XboxController.Button.kA.value)
-        .onTrue(Commands.runOnce(() -> drive.setPose(
-            new Pose2d(drive.getPose().getTranslation(), new Rotation2d()))));
+    drive.setDefaultCommand(
+        Commands.run(
+            () -> {
+              // Flip translation direction on Red alliance so "forward" always faces
+              // the opponent's wall regardless of which side you're on.
+              double flip = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
+                  ? -1.0 : 1.0;
+              Translation2d xy = translate.get();
+              drive.runVelocityFieldRelative(new ChassisSpeeds(
+                  flip * xy.getX() * drive.getMaxLinearSpeed().in(MetersPerSecond),
+                  flip * xy.getY() * drive.getMaxLinearSpeed().in(MetersPerSecond),
+                  rotation.getAsDouble() * drive.getMaxAngularSpeed().in(RadiansPerSecond)));
+            },
+            drive
+        ).withName("XboxDrive")
+    );
+
+    // A button: zero the heading (useful after gyro drift)
+    driver.a().onTrue(Commands.runOnce(() -> drive.setPose(
+        new Pose2d(drive.getPose().getTranslation(), new Rotation2d()))));
 }
 ```
 
 Add the imports:
 
 ```java
-import edu.wpi.first.wpilibj.XboxController;
-import edu.wpi.first.wpilibj2.command.button.JoystickButton;
-import edu.wpi.first.wpilibj2.command.Commands;
+import static edu.wpi.first.units.Units.MetersPerSecond;
+import static edu.wpi.first.units.Units.RadiansPerSecond;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj2.command.Commands;
+import org.frc5010.common.drive.swerve.DriveVector;
+import org.frc5010.common.drive.swerve.JoystickAxis;
+import org.frc5010.common.drive.swerve.XboxConfigurableController;
 ```
+
+> **Testing in simulation without a physical controller:** The visual auto-test (`-PvisualTest`) doesn't use the controller at all, so you can verify basic motion without a gamepad. For interactive keyboard testing, the default keyboard mapping (WASD for translation, E/R for rotation) is replaced by this override — use the visual test or plug in a controller.
 
 ---
 
@@ -387,7 +437,7 @@ Override `getAutonomousCommand()` in `RobotContainer.java`:
 public Command getAutonomousCommand() {
     // Keep the visual test available when running with -PvisualTest
     if (Boolean.getBoolean("visualTest")) {
-        return SwerveVisualTest.build(drive, this::getAllianceStartPose);
+        return SwerveVisualTest.build(drive, vision, this::getAllianceStartPose);
     }
     // Replace with your PathPlanner or Choreo auto
     return AutoBuilder.buildAuto("MyAutoName");

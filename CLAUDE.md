@@ -42,14 +42,14 @@ frc.robot.RobotContainer (concrete — extends SwerveRobotContainer)
 
 ---
 
-## Test pyramid (59/59 passing as of 2026-05-26)
+## Test pyramid
 
-| Layer | Class | Factory method | IO impl | Tests |
-|-------|-------|----------------|---------|-------|
-| 1 — unit | `SwerveConstantsTest`, `SwerveFactoryModeTest`, `TunableGainsTest` | — | — | 33 |
-| 2 — subsystem sim | `AkitSwerveDriveTest`, `VisionSubsystemTest` | `buildWithoutPhysics()` / stub IO | `ModuleIOSim` / `VisionIO` stub | 13 |
-| 3 — physics integration | `AkitSwerveDriveSimPhysicsTest`, `VisionSimIntegrationTest` | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` | 10 |
-| 4 — visual / interactive | `RobotContainer` visual-test sequence (6 steps incl. vision correction) | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` | visual |
+| Layer | Class | Factory method | IO impl |
+|-------|-------|----------------|---------|
+| 1 — unit | `SwerveConstantsTest`, `SwerveFactoryModeTest`, `TunableGainsTest`, `JoystickAxisTest` | — | — |
+| 2 — subsystem sim | `AkitSwerveDriveTest`, `VisionSubsystemTest` | `buildWithoutPhysics()` / stub IO | `ModuleIOSim` / `VisionIO` stub |
+| 3 — physics integration | `AkitSwerveDriveSimPhysicsTest`, `VisionSimIntegrationTest` | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` |
+| 4 — visual / interactive | `RobotContainer` visual-test sequence (6 steps incl. vision correction) | `build()` | `ModuleIOSimPhysics` + `VisionIOSim` |
 
 Layers 1–3 extend `SimTestBase` (deterministic FPGA clock via `SimHooks`).
 Layer 4 runs as a full robot program via `./gradlew simulateJava`; it is **never** in CI.
@@ -214,6 +214,14 @@ This codebase is otherwise platform-agnostic — same JDK 17, same vendordeps, s
 ### 9. `@AutoLog` fields must stay `double` — never `Measure<>`
 AdvantageKit's annotation processor generates logging code that expects primitive `double` fields inside `@AutoLog`-annotated inner classes. Converting `GyroIOInputs` or `ModuleIOInputs` fields to `Measure<Distance>` etc. will cause a compile error or silent logging failure. Always extract the raw value with `.in(unit)` *before* assigning to an inputs struct field.
 
+### 10. Enabling the robot from sim code requires `setDsAttached(true)` AND a disable-tolerant caller
+Two non-obvious WPILib rules govern the web interface's Enable button (`WebDriveController` + `SwerveRobotContainer`):
+
+1. **`DriverStation.isEnabled()` is `controlWord.getEnabled() && controlWord.getDSAttached()`** (verified in the 2026.2.1 bytecode). Calling `DriverStationSim.setEnabled(true)` alone is *not* enough — without `DriverStationSim.setDsAttached(true)` the robot stays disabled and `AkitSwerveDrive.periodic()` stops every module (drive signals log once at 0, `n=1`). `Robot.simulationInit()` already pairs the two for `-PvisualTest`; `WebDriveController.applyPendingControl()` must do the same.
+2. **Default commands do not run while the robot is disabled.** The code that *enables* the robot therefore cannot live in the drive default command — it would never run while disabled (catch-22). `SwerveRobotContainer` schedules `applyPendingControl()` on a separate `Commands.run(...).ignoringDisable(true)` command so the enable click is processed even from the disabled state.
+
+Symptom if either is missing: the web Enable button appears to toggle but the robot never actually enables and never moves.
+
 ---
 
 ## Key file locations
@@ -225,6 +233,11 @@ AdvantageKit's annotation processor generates logging code that expects primitiv
 | Subsystem (periodic, simulationPeriodic) | `src/main/java/org/frc5010/common/drive/swerve/akit/AkitSwerveDrive.java` |
 | Base robot container (keyboard drive, auto, alliance pose) | `src/main/java/org/frc5010/common/drive/swerve/SwerveRobotContainer.java` |
 | Visual auto test sequence | `src/main/java/org/frc5010/common/drive/swerve/SwerveVisualTest.java` |
+| Joystick axis transform pipeline | `src/main/java/org/frc5010/common/drive/swerve/JoystickAxis.java` |
+| 2-D drive vector (combines two JoystickAxis) | `src/main/java/org/frc5010/common/drive/swerve/DriveVector.java` |
+| Generic configurable controller (port-based) | `src/main/java/org/frc5010/common/drive/swerve/ConfigurableController.java` |
+| Xbox-specific named accessors | `src/main/java/org/frc5010/common/drive/swerve/XboxConfigurableController.java` |
+| Layer 1 unit tests (JoystickAxis + DriveVector) | `src/test/java/org/frc5010/common/unit/JoystickAxisTest.java` |
 | Robot profile interface | `src/main/java/org/frc5010/common/drive/swerve/RobotProfile.java` |
 | Sim robot profile (CI / library dev) | `src/main/java/org/frc5010/common/drive/swerve/SimRobotProfile.java` |
 | Real robot profile placeholder | `src/main/java/frc/robot/RealRobotProfile.java` |
@@ -325,7 +338,7 @@ When creating a new environment at [claude.ai/code](https://claude.ai/code), set
 
 **Before committing any change to the common library (`src/main/java/org/frc5010/common/...`):**
 
-1. **Run the full test suite** — `.\gradlew.bat test` — all 69 tests must pass (59 original + 10 calibration). Never weaken an assertion to force a pass; fix the root cause.
+1. **Run the full test suite** — `.\gradlew.bat test` — all tests must pass. Never weaken an assertion to force a pass; fix the root cause.
 2. Update any affected slash command in `.claude/commands/` (e.g. `new-sim-test`, `new-robot-profile`, `diagnose-log`, `validate-replay`).
 3. Update the relevant `docs/` page (`configuration`, `architecture`, `testing`, `simulation`, or `robot-profiles`).
 4. Update `CLAUDE.md` if a gotcha, file location, or architecture section is no longer accurate.
@@ -416,5 +429,15 @@ See `/new-vision-camera` for the step-by-step wiring guide.
 - `/new-robot-profile` — step-by-step guide for wiring a real robot's hardware IO into `RealRobotProfile`
 - `/diagnose-log` — agent workflow for reading `.wpilog` files, interpreting anomaly flags, replay, and performance comparison
 - `/new-vision-camera` — step-by-step guide for adding a PhotonVision or Limelight camera to the Vision subsystem
+- `/new-game-field` — build a 2D web field + custom IronMaple arena (barriers + game pieces) from a new season's game manual, for when IronMaple hasn't shipped the season arena yet
 - `/validate-replay` — validate replay fidelity after non-trivial logging changes (produce log → replay → check anomalies)
 - `/calibrate-drive` — agent-guided step-by-step motor calibration (sim ramp → SysId → apply gains to TunerX or DriveConstants)
+
+---
+
+## TODO (future sessions)
+
+- **Web field: render live game pieces.** Pull game-piece poses from
+  `SimulatedArena.getInstance()` (the dynamic objects, not obstacles) and draw them
+  on the web field view. They are dynamic (move / get scored) so must be polled each
+  frame via `/api/state` (or a new `/api/gamepieces` endpoint), not hard-coded.
