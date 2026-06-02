@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.profiles;
 
 import static edu.wpi.first.units.Units.Meters;
 

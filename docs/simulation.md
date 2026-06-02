@@ -35,6 +35,17 @@ Same as scenario 2, but `getAutonomousCommand()` returns the `SwerveVisualTest` 
 
 Once Glass opens, find the **Driver Station** panel, set mode to **Autonomous**, and click **Enable** to start the sequence. In Codespaces, use `xvfb-run` and connect AdvantageScope instead — see [Live connection — cloud environment](#live-connection--github-codespaces-or-cloud-environment) below.
 
+### 4. Browser web UI (`-PwebUI`)
+
+Opt-in browser-based UI on `http://localhost:5800` — field view, virtual gamepad, alliance/enable controls, and the `DemoIntake` demo. `-PwebUI` skips `wpi.sim.addGui()` / `addDriverstation()`, so **no Glass window opens**; the browser is the only UI.
+
+```powershell
+.\gradlew.bat simulateJava -PwebUI         # Windows
+./gradlew simulateJava -PwebUI              # macOS / Linux / Codespaces
+```
+
+`WebDriveController` drives `DriverStationSim` programmatically (setEnabled + setDsAttached + alliance), so the Glass DS widget isn't needed. Plain `simulateJava` is the reverse — Glass only, no HTTP server on port 5800, no demo intake instance.
+
 ---
 
 ## Watching the simulation

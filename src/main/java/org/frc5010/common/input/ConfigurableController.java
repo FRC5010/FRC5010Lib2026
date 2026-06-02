@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.input;
 
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj2.command.button.Trigger;

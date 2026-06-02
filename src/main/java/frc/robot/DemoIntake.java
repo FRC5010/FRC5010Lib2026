@@ -1,20 +1,21 @@
-package org.frc5010.common.drive.swerve;
+package frc.robot;
 
 import static edu.wpi.first.units.Units.Degrees;
 import static edu.wpi.first.units.Units.Meters;
 import static edu.wpi.first.units.Units.MetersPerSecond;
 
 import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;
 import swervelib.simulation.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
 import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnFly;
@@ -24,12 +25,15 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * Demo intake and scoring simulation for the 2026 Rebuilt game.
  * Not a real mechanism — for interactive demonstration only.
  *
- * <p>Web controller button mapping:
+ * <p>Driven by three {@link BooleanSupplier} inputs so the same demo logic works
+ * from any control source — web UI buttons, keyboard/Xbox buttons, or both OR-ed
+ * together. {@link #periodic(Pose2d)} edge-detects rising transitions.
+ *
  * <ul>
- *   <li>LB (idx 4) — click to latch intake extended
- *   <li>RB (idx 5) — click to retract intake
- *   <li>A  (idx 0) — fire one Fuel; speed and loft angle are computed
- *                    automatically to reach the current target
+ *   <li>{@code extend}  — rising edge latches the intake extended
+ *   <li>{@code retract} — rising edge retracts the intake
+ *   <li>{@code fire}    — rising edge fires one Fuel; speed and loft angle are
+ *                         computed automatically to reach the current target
  * </ul>
  *
  * <p>When inside the alliance zone (X &lt; 3.952 m for Blue, X &gt; 12.589 m for
@@ -70,15 +74,24 @@ public class DemoIntake {
   private static final Translation3d BLUE_ZONE_TARGET = new Translation3d(ZONE_DEPTH_M / 2, 4.035, 0.1);
   private static final Translation3d RED_ZONE_TARGET  = new Translation3d(FIELD_WIDTH_M - ZONE_DEPTH_M / 2, 4.035, 0.1);
 
-  private final WebDriveController wdc;
-  private boolean intakeExtended = false;
-  private int heldFuel   = 0;
+  private final BooleanSupplier extendInput;
+  private final BooleanSupplier retractInput;
+  private final BooleanSupplier fireInput;
+
+  // Volatile so HTTP thread (web /api/state) sees fresh values without locking.
+  private volatile boolean intakeExtended = false;
+  private volatile int heldFuel   = 0;
   // Scored count written on robot thread (in projectile hit callback), read by HTTP thread.
   private final AtomicInteger scoredFuelCount = new AtomicInteger(0);
-  private final boolean[] prevBtn = new boolean[6];
 
-  public DemoIntake(WebDriveController wdc) {
-    this.wdc = wdc;
+  private boolean prevExtend  = false;
+  private boolean prevRetract = false;
+  private boolean prevFire    = false;
+
+  public DemoIntake(BooleanSupplier extend, BooleanSupplier retract, BooleanSupplier fire) {
+    this.extendInput  = extend;
+    this.retractInput = retract;
+    this.fireInput    = fire;
   }
 
   /**
@@ -86,22 +99,26 @@ public class DemoIntake {
    * @param robotPose current robot pose from the drive subsystem
    */
   public void periodic(Pose2d robotPose) {
-    // ---- intake: LB click latches extended; RB click retracts ----
-    if (wdc.getButton(4).getAsBoolean() && !prevBtn[4]) intakeExtended = true;
-    if (wdc.getButton(5).getAsBoolean() && !prevBtn[5]) intakeExtended = false;
+    boolean extend  = extendInput.getAsBoolean();
+    boolean retract = retractInput.getAsBoolean();
+    boolean fire    = fireInput.getAsBoolean();
 
+    if (extend  && !prevExtend)  intakeExtended = true;
+    if (retract && !prevRetract) intakeExtended = false;
     if (intakeExtended) collectNearbyFuel(robotPose);
+    if (fire && !prevFire) fireFuel(robotPose);
 
-    // ---- A button fires (rising-edge); B/X/Y unused ----
-    boolean heldA = wdc.getButton(0).getAsBoolean();
-    if (heldA && !prevBtn[0]) fireFuel(robotPose);
-    for (int i = 0; i < 6; i++) prevBtn[i] = wdc.getButton(i).getAsBoolean();
-
-    // Push state to WebDriveController atomics so /api/state includes them.
-    wdc.setHeldFuel(heldFuel);
-    wdc.setIntakeExtended(intakeExtended);
-    wdc.setScored(scoredFuelCount.get());
+    prevExtend  = extend;
+    prevRetract = retract;
+    prevFire    = fire;
   }
+
+  /** Current count of Fuel pieces held by the intake. Safe to call from any thread. */
+  public int getHeldFuel()       { return heldFuel; }
+  /** Whether the intake is currently extended. Safe to call from any thread. */
+  public boolean isIntakeExtended() { return intakeExtended; }
+  /** Count of Fuel pieces scored in the hub since startup. Safe to call from any thread. */
+  public int getScoredCount()    { return scoredFuelCount.get(); }
 
   // ---- private helpers ----
 

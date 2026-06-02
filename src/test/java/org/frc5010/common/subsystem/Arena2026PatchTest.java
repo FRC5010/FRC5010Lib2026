@@ -6,7 +6,7 @@ import java.lang.reflect.Field;
 import org.dyn4j.dynamics.Body;
 import org.dyn4j.geometry.Transform;
 import org.dyn4j.world.World;
-import org.frc5010.common.drive.swerve.Arena2026Patch;
+import org.frc5010.common.sim.Arena2026Patch;
 import org.frc5010.common.util.SimTestBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

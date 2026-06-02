@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.sim;
 
 import java.util.function.Supplier;
 

@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.sim;
 
 import edu.wpi.first.math.geometry.Translation2d;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;

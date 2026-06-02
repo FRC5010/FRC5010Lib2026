@@ -419,9 +419,9 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Commands;
-import org.frc5010.common.drive.swerve.DriveVector;
-import org.frc5010.common.drive.swerve.JoystickAxis;
-import org.frc5010.common.drive.swerve.XboxConfigurableController;
+import org.frc5010.common.input.DriveVector;
+import org.frc5010.common.input.JoystickAxis;
+import org.frc5010.common.input.XboxConfigurableController;
 ```
 
 > **Testing in simulation without a physical controller:** The visual auto-test (`-PvisualTest`) doesn't use the controller at all, so you can verify basic motion without a gamepad. For interactive keyboard testing, the default keyboard mapping (WASD for translation, E/R for rotation) is replaced by this override — use the visual test or plug in a controller.

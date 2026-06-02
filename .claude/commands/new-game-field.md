@@ -403,9 +403,9 @@ Per `CLAUDE.md` "Contribution rules":
 
 | Concern | Look at |
 |---|---|
-| Reflective obstacle patch (idempotent) | `org.frc5010.common.drive.swerve.Arena2026Patch` |
-| Curated piece spawner | `org.frc5010.common.drive.swerve.GamePieceSpawner` |
-| Projectile launch + ballistic speed + scoring callback | `org.frc5010.common.drive.swerve.DemoIntake` |
+| Reflective obstacle patch (idempotent) | `org.frc5010.common.sim.Arena2026Patch` |
+| Curated piece spawner | `org.frc5010.common.sim.GamePieceSpawner` |
+| Projectile launch + ballistic speed + scoring callback | `frc.robot.DemoIntake` |
 | Factory wiring (patch + spawn after `addDriveTrainSimulation`) | `SwerveFactory.buildWithPhysicsSim` (~L118-124) |
 | Web field draw (letterbox, obstacles, tags, pieces, sidebar) | `src/main/resources/web/index.html` (`drawField`, `drawObstacles`, `drawGamePieces`) |
 | `/api/gamepieces` + `/api/state` field-size JSON | `WebDriveController.handleGamePieces`, `handleState` |

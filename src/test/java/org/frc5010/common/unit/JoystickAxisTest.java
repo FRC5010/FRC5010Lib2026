@@ -3,8 +3,8 @@ package org.frc5010.common.unit;
 import static org.junit.jupiter.api.Assertions.*;
 
 import edu.wpi.first.math.geometry.Translation2d;
-import org.frc5010.common.drive.swerve.DriveVector;
-import org.frc5010.common.drive.swerve.JoystickAxis;
+import org.frc5010.common.input.DriveVector;
+import org.frc5010.common.input.JoystickAxis;
 import org.junit.jupiter.api.Test;
 
 /**

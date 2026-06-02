@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.input;
 
 import java.util.function.DoubleSupplier;
 import java.util.function.DoubleUnaryOperator;

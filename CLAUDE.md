@@ -54,129 +54,7 @@ frc.robot.RobotContainer (concrete — extends SwerveRobotContainer)
 Layers 1–3 extend `SimTestBase` (deterministic FPGA clock via `SimHooks`).
 Layer 4 runs as a full robot program via `./gradlew simulateJava`; it is **never** in CI.
 
----
-
-## Per-cycle call order — Layer 3 tests (IronMaple)
-
-```java
-drive.runVelocity(speeds);   // 1. queue voltage commands to physics controllers
-drive.simulationPeriodic();  // 2. advance dyn4j world: 5 sub-ticks × 4 ms = 20 ms
-drive.periodic();            // 3. read updated module caches → pose estimator
-// If vision is present (Layer 3 vision tests):
-vision.periodic();           // 4. update VisionIOSim → call addVisionMeasurement
-stepOneCycle();              // 5. advance FPGA clock 20 ms
-```
-
-**Wrong order = stale data.** `periodic()` reads IronMaple module position caches. Those caches are only refreshed by `simulationPeriodic()` sub-ticks. If you call `periodic()` first, it reads the zero-filled initial caches and no motion appears.
-
-`vision.periodic()` must come *after* `drive.simulationPeriodic()` and `drive.periodic()` so `VisionIOSim` calls `visionSim.update()` with the freshly-updated physics pose.
-
-Layer 2 tests (`buildWithoutPhysics`) don't need `simulationPeriodic()` — `ModuleIOSim.updateInputs()` calls `driveSim.update(0.02)` internally.
-
-## Per-cycle call order — Layer 4 robot program
-
-`CommandScheduler.run()` (called from `Robot.robotPeriodic()`) handles everything automatically:
-
-```
-robotPeriodic()
-  └─ CommandScheduler.run()
-       ├─ drive.periodic()           // read sensors → odometry → Field2d
-       ├─ drive.simulationPeriodic() // advance IronMaple physics (sim only)
-       └─ command.execute()          // runVelocityFieldRelative() or visual-test step
-```
-
-There is a 1-cycle lag between commanding a velocity and seeing pose displacement — this is normal for a real-time system. **Do not add a separate `drive.simulationPeriodic()` call in `Robot.simulationPeriodic()`**; the scheduler already calls it and a double-call would advance the physics engine twice per loop.
-
----
-
-## SimulatedArena singleton — test isolation
-
-`SimulatedArena` is a static singleton. Every `SwerveFactory.build()` call registers a new `SwerveDriveSimulation` body into the current arena. Without cleanup, each test accumulates stale bodies.
-
-**Required teardown pattern in every Layer 3 `@AfterEach`:**
-```java
-SimulatedArena.getInstance().shutDown();         // removes all dyn4j bodies
-java.lang.reflect.Field f = SimulatedArena.class.getDeclaredField("instance");
-f.setAccessible(true);
-f.set(null, null);                               // null the singleton → next test gets fresh Arena2026Rebuilt
-```
-
----
-
-## WPILib units conventions
-
-All `SwerveConstants` fields use typed WPILib unit measures. **Never** pass raw doubles to the builder; always pass a typed measure so the caller controls units.
-
-```java
-new SwerveConstants.Builder()
-    .trackWidth(Inches.of(22.75))
-    .wheelBase(Inches.of(22.75))
-    .wheelRadius(Inches.of(2.0))
-    .maxLinearSpeed(MetersPerSecond.of(4.5))
-    .maxAngularSpeed(RadiansPerSecond.of(2 * Math.PI))
-    .robotMass(Pounds.of(125))        // or Kilograms.of(45)
-    .bumperLength(Inches.of(30))      // or Meters.of(0.76)
-    .bumperWidth(Inches.of(30))
-    .odometryFrequency(Hertz.of(250)) // 250 Hz for CANivore, 100 Hz default
-    .build();
-```
-
-Public fields on `SwerveConstants` are typed: `Distance trackWidth`, `LinearVelocity maxLinearSpeed`, `Mass robotMass`, `Frequency odometryFrequency`, etc. Consumers call `.in(unit)` at the point of use.
-
-**Do NOT convert `@AutoLog` inner-class fields to `Measure<>`.**
-AdvantageKit's logging serializer requires primitive `double` fields in `@AutoLog`-annotated classes (`ModuleIOInputs`, `GyroIOInputs`). These must stay `double`.
-
-### `AkitSwerveDrive` speed accessors
-
-```java
-LinearVelocity  v = drive.getMaxLinearSpeed();   // returns constants.maxLinearSpeed directly
-AngularVelocity w = drive.getMaxAngularSpeed();  // returns constants.maxAngularSpeed directly
-// To extract a raw double: v.in(MetersPerSecond), w.in(RadiansPerSecond)
-```
-
-### `RobotProfile` / `SwerveRobotContainer` field length
-
-```java
-Distance len = profile.getFieldLength();            // default: Meters.of(16.540988) — Arena2026Rebuilt
-Distance len = container.getFieldLength();          // same; delegates to profile when one was provided
-```
-
----
-
-## Robot profiles and simulation scenarios
-
-Three scenarios, two profile classes:
-
-| Scenario | Profile | How to run |
-|----------|---------|------------|
-| CI / library dev | `SimRobotProfile` | `.\gradlew.bat test -PtestSim` or automated test agents |
-| VSCode "Simulate Robot Code" | `RealRobotProfile` | `.\gradlew simulateJava` (default) |
-| Real hardware | `RealRobotProfile` | Deploy to RoboRIO |
-
-`RobotContainer.selectProfile()` picks the profile:
-```java
-if (RobotBase.isReal()) return new RealRobotProfile();
-if (Boolean.getBoolean("testSim")) return new SimRobotProfile();
-return new RealRobotProfile();  // default for VSCode sim
-```
-
-`RealRobotProfile.createDrive()` branches on `RobotBase.isReal()`:
-- **REAL**: wire hardware IO (`GyroIOPigeon2`, `ModuleIOTalonFXReal`, …) — must be done manually; factory throws for `TALON_FX` in REAL mode by design.
-- **SIM**: call `SwerveFactory.build(CONSTANTS, BLUE_START)` — IronMaple uses the real robot's mass/geometry for accurate physics even in simulation.
-
-`RobotProfile.createVision(drive)` returns `null` by default. Override in the team's profile to wire cameras — `SwerveRobotContainer` calls it automatically after `createDrive()` and stores the result in the `protected Vision vision` field. `SimRobotProfile` inherits the default null (lightweight CI profile, no cameras).
-
-See `/new-robot-profile` for the step-by-step wiring guide.
-
-### Gradle simulation flags
-
-```powershell
-.\gradlew.bat simulateJava                  # default — RealRobotProfile + IronMaple
-.\gradlew.bat simulateJava -PtestSim        # SimRobotProfile (lightweight, no real CAN IDs)
-.\gradlew.bat simulateJava -PvisualTest     # RealRobotProfile + automated visual-test sequence
-```
-
-Both flags are forwarded to the JVM as system properties via `tasks.withType(JavaExec)` in `build.gradle`.
+Full Layer-by-layer detail, per-cycle call order, and `SimulatedArena` teardown pattern: [docs/testing.md](docs/testing.md).
 
 ---
 
@@ -195,18 +73,16 @@ Modules start facing forward (0°). A forward command works immediately. A straf
 After one sub-tick, `initialPoseIsAtOrigin` sees a heading of ~1.5e-6 rad (sub-micro-radian numerical noise from dyn4j). Use tolerance `1e-4`, not `1e-6`.
 
 ### 5. Running tests — platform-dependent invocation
-Use the wrapper that matches the host:
+- **Windows local** (`C:\workspace\FRC5010Claude`): `.\gradlew.bat test` via PowerShell. WSL has no access to `C:\workspace`, so `./gradlew` via Bash fails.
+- **Linux** (Codespace, devcontainer, claude.ai/code web sandbox, CI): `./gradlew test`.
 
-- **Windows local** (`C:\workspace\FRC5010Claude`): `.\gradlew.bat test` via PowerShell. WSL has no access to `C:\workspace`, so `./gradlew` via Bash fails (`/mnt/c` not mounted).
-- **Linux** (Codespace, devcontainer, claude.ai/code web sandbox, CI): `./gradlew test`. The `gradlew` script is already executable in-repo.
-
-This codebase is otherwise platform-agnostic — same JDK 17, same vendordeps, same test results. Slash commands in `.claude/commands/` are written for the Windows local workflow; on Linux, translate `.\gradlew.bat` → `./gradlew`.
+Slash commands in `.claude/commands/` are written for the Windows local workflow; on Linux, translate `.\gradlew.bat` → `./gradlew`.
 
 ### 6. `setPose()` needs one extra cycle before measuring — Layer 4 sequence
 `AkitSwerveDrive.setPose()` re-anchors the pose estimator immediately, but the Field2d widget and subsequent `getPose()` calls won't reflect the new value until `periodic()` runs again (next scheduler tick). Always insert `Commands.waitSeconds(0.05)` after a `setPose()` call inside a command sequence before asserting position, or you'll compare against the old pose.
 
 ### 7. DriverStation must be enabled for IronMaple motors to move — Layer 4
-`AkitSwerveDrive.periodic()` calls `module.stop()` for every module when `DriverStation.isDisabled()`. In `simulateJava` mode, the robot starts disabled. The visual-test sequence auto-enables via `DriverStationSim` in `simulationInit()` when `-PvisualTest` is set. For interactive use, click **Enable** in the Glass Driver Station panel.
+`AkitSwerveDrive.periodic()` calls `module.stop()` for every module when `DriverStation.isDisabled()`. In `simulateJava` mode, the robot starts disabled. The visual-test sequence auto-enables via `DriverStationSim` in `simulationInit()` when `-PvisualTest` is set. For interactive use, click **Enable** in the Glass Driver Station panel (or the web UI's Enable button under `-PwebUI`).
 
 ### 8. REAL mode factory throws by design
 `SwerveFactory.build()` and `buildWithoutPhysics()` throw `UnsupportedOperationException` for `TALON_FX`/`SPARK_TALON` in REAL mode. Teams must instantiate `ModuleIOTalonFXReal`/`ModuleIOSparkTalon` directly with their CTRE TunerX `SwerveModuleConstants`. This is intentional — the factory can't construct motor specs without full TunerX gear/gain configuration.
@@ -231,17 +107,18 @@ Symptom if either is missing: the web Enable button appears to toggle but the ro
 | Swerve config record | `src/main/java/org/frc5010/common/drive/swerve/SwerveConstants.java` |
 | Factory (build/buildWithoutPhysics) | `src/main/java/org/frc5010/common/drive/swerve/SwerveFactory.java` |
 | Subsystem (periodic, simulationPeriodic) | `src/main/java/org/frc5010/common/drive/swerve/akit/AkitSwerveDrive.java` |
-| Base robot container (keyboard drive, auto, alliance pose) | `src/main/java/org/frc5010/common/drive/swerve/SwerveRobotContainer.java` |
-| Visual auto test sequence | `src/main/java/org/frc5010/common/drive/swerve/SwerveVisualTest.java` |
-| Joystick axis transform pipeline | `src/main/java/org/frc5010/common/drive/swerve/JoystickAxis.java` |
-| 2-D drive vector (combines two JoystickAxis) | `src/main/java/org/frc5010/common/drive/swerve/DriveVector.java` |
-| Generic configurable controller (port-based) | `src/main/java/org/frc5010/common/drive/swerve/ConfigurableController.java` |
-| Xbox-specific named accessors | `src/main/java/org/frc5010/common/drive/swerve/XboxConfigurableController.java` |
-| Layer 1 unit tests (JoystickAxis + DriveVector) | `src/test/java/org/frc5010/common/unit/JoystickAxisTest.java` |
-| Robot profile interface | `src/main/java/org/frc5010/common/drive/swerve/RobotProfile.java` |
-| Sim robot profile (CI / library dev) | `src/main/java/org/frc5010/common/drive/swerve/SimRobotProfile.java` |
+| Base robot container (keyboard drive, auto, alliance pose) | `src/main/java/org/frc5010/common/profiles/SwerveRobotContainer.java` |
+| Visual auto test sequence | `src/main/java/org/frc5010/common/sim/SwerveVisualTest.java` |
+| Joystick axis transform pipeline | `src/main/java/org/frc5010/common/input/JoystickAxis.java` |
+| 2-D drive vector (combines two JoystickAxis) | `src/main/java/org/frc5010/common/input/DriveVector.java` |
+| Generic configurable controller (port-based) | `src/main/java/org/frc5010/common/input/ConfigurableController.java` |
+| Xbox-specific named accessors | `src/main/java/org/frc5010/common/input/XboxConfigurableController.java` |
+| Robot profile interface | `src/main/java/org/frc5010/common/profiles/RobotProfile.java` |
+| Sim robot profile (CI / library dev) | `src/main/java/org/frc5010/common/profiles/SimRobotProfile.java` |
 | Real robot profile placeholder | `src/main/java/frc/robot/RealRobotProfile.java` |
 | Top-level robot container | `src/main/java/frc/robot/RobotContainer.java` |
+| Browser-based web UI controller (sim only, `-PwebUI`) | `src/main/java/org/frc5010/common/sim/WebDriveController.java` |
+| Demo intake (team-code example) | `src/main/java/frc/robot/DemoIntake.java` |
 | Physics module IO | `src/main/java/org/frc5010/common/drive/swerve/akit/ModuleIOSimPhysics.java` |
 | Physics gyro IO | `src/main/java/org/frc5010/common/drive/swerve/akit/GyroIOSimPhysics.java` |
 | DCMotorSim module IO | `src/main/java/org/frc5010/common/drive/swerve/akit/ModuleIOSim.java` |
@@ -260,160 +137,25 @@ Symptom if either is missing: the web Enable button appears to toggle but the ro
 | PhotonVision IO (REAL) | `src/main/java/org/frc5010/common/vision/VisionIOPhoton.java` |
 | Limelight IO via YALL (REAL) | `src/main/java/org/frc5010/common/vision/VisionIOLimelight.java` |
 | Vision sim IO (extends VisionIOPhoton) | `src/main/java/org/frc5010/common/vision/VisionIOSim.java` |
-| Vision Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/VisionSubsystemTest.java` |
 | Calibration result record | `src/main/java/org/frc5010/common/drive/swerve/calibration/CalibrationResult.java` |
 | Calibration data-collection routine | `src/main/java/org/frc5010/common/drive/swerve/calibration/MotorCalibrationRoutine.java` |
-| Calibration Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/DriveCalibrationTest.java` |
-| Calibration Layer 3 tests | `src/test/java/org/frc5010/common/subsystem/DriveCalibrationSimPhysicsTest.java` |
-| Calibration guide (student + agent) | `docs/calibration.md` |
 
 ---
 
-## Log analysis
+## Deeper docs
 
-Every `simulateJava` run writes a `.wpilog` to the `logs/` directory (configured in `Robot.java`). Replay runs write `<original>_sim.wpilog` alongside the source log.
-
-**Agent-readable summary:**
-```powershell
-.\gradlew.bat logSummary                              # most recent log in logs/
-.\gradlew.bat logSummary -PlogFile=logs/foo.wpilog    # specific file
-```
-Output: entry list, min/max per signal, anomaly flags (loop overruns > 25 ms, gyro disconnect, motor current > 60 A).
-
-**Replay (re-run code against a recorded log):**
-```powershell
-.\gradlew.bat replayWatch    # opens file picker; output written to <original>_sim.wpilog
-```
-
-**Key signal paths in the log** (from `@AutoLogOutput` and `@AutoLog`-generated fields):
-- `RealOutputs/Drive/Pose` — `double[]` [x, y, headingRad]
-- `RealOutputs/Drive/Module{0-3}DriveVelocityRadPerSec` — `double`
-- `RealOutputs/Drive/Module{0-3}DriveCurrentAmps` — `double`
-- `RealOutputs/Drive/Module{0-3}TurnPosition` — `double`
-- `RealOutputs/Drive/GyroConnected` — `boolean`
-- `RealOutputs/Drive/GyroYawPositionRad` — `double`
-
-Use `.\gradlew.bat logSummary` to discover the actual entry paths in any given log before searching for a specific signal.
-
-See `/diagnose-log` slash command for the full agent workflow.
-
----
-
-## CI / devcontainer
-
-- **CI:** `.github/workflows/ci.yml` — `./gradlew test` on every push/PR to `main`
-- **Codespaces:** `.devcontainer/` — Java 17 bookworm + xvfb; `postCreateCommand` pre-warms Gradle; forwards ports 5810 (NT4), 5800, 1735
-- **Sim sharing:** `xvfb-run ./gradlew simulateJava` in Codespace → VS Code auto-forwards port 5810 → AdvantageScope connects live
-
-### Setting up Claude Code on the web
-
-To use this repo in a [claude.ai/code](https://claude.ai/code) web session:
-
-1. **Install the Claude Code GitHub App** — go to [github.com/apps/claude](https://github.com/apps/claude), click **Install**, and grant it read/write access to this repository. Without write access the agent cannot push commits or create branches.
-2. **Allow the required domains** — when creating a new environment, set the **network policy** to allow the domains listed below so the Gradle build and vendordep downloads succeed. See the [environment configuration docs](https://code.claude.com/docs/en/claude-code-on-the-web) for how to set the allowed-domains list.
-
-### Trusted domains for Claude Code on the web
-
-When creating a new environment at [claude.ai/code](https://claude.ai/code), set the **network policy** to allow these domains so the Gradle build and vendordep downloads succeed. See [environment configuration docs](https://code.claude.com/docs/en/claude-code-on-the-web) for how to set the allowed-domains list.
-
-| Domain | Purpose |
-|--------|---------|
-| `services.gradle.org` | Gradle wrapper distribution (`gradle-8.11-bin.zip`) |
-| `plugins.gradle.org` | Gradle Plugin Portal — GradleRIO plugin |
-| `frcmaven.wpi.edu` | WPILib Maven — WPILib libraries + AdvantageKit |
-| `repo1.maven.org` | Maven Central — JUnit, YAGSL transitive deps |
-| `maven.ctr-electronics.com` | CTRE Phoenix 6 |
-| `maven.revrobotics.com` | REV Robotics |
-| `maven.reduxrobotics.com` | Redux Robotics |
-| `docs.home.thethriftybot.com` | ThriftyBot library |
-| `maven.photonvision.org` | PhotonVision |
-| `yet-another-software-suite.github.io` | YAGSL |
-| `3015rangerrobotics.github.io` | PathPlannerLib |
-| `pypi.org` | Python packages for the `frc-docs` MCP server (`uvx first-agentic-csa`) |
-| `files.pythonhosted.org` | Python package downloads for `frc-docs` MCP server |
-
----
-
-## Contribution rules
-
-**Before committing any change to the common library (`src/main/java/org/frc5010/common/...`):**
-
-1. **Run the full test suite** — `.\gradlew.bat test` — all tests must pass. Never weaken an assertion to force a pass; fix the root cause.
-2. Update any affected slash command in `.claude/commands/` (e.g. `new-sim-test`, `new-robot-profile`, `diagnose-log`, `validate-replay`).
-3. Update the relevant `docs/` page (`configuration`, `architecture`, `testing`, `simulation`, or `robot-profiles`).
-4. Update `CLAUDE.md` if a gotcha, file location, or architecture section is no longer accurate.
-5. If a new reusable pattern was introduced, consider whether it warrants a new slash command or docs page.
-6. **For non-trivial logging changes** — any change to `@AutoLog` fields, `Robot.java` data receivers, or `LogSummary.java` — validate replay fidelity:
-   ```powershell
-   # 1. Produce a live log (Glass opens, auto-closes when test completes)
-   .\gradlew.bat simulateJava -PvisualTest -PvisualTestExit
-   # 2. Replay it headlessly; exits automatically when autonomous completes
-   .\gradlew.bat simulateJava -Plog=logs/<your-log>.wpilog -PvisualTest -PreplayExit
-   # 3. Check the replay log for anomalies vs the live log
-   .\gradlew.bat replayValidate
-   ```
-   See `/validate-replay` for the full workflow and how to interpret the output.
-
-The code, the tests, the docs, and the agent skills must stay in sync — stale guidance causes the next contributor to repeat solved problems.
-
----
-
-## Vision architecture
-
-### Overview
-
-The vision subsystem follows the same AdvantageKit IO pattern as the drive subsystem.
-
-```
-CameraConfig[] (one per camera, Builder pattern)
-        │
-        ▼
-VisionFactory.build(consumer, poseSupplier, headingSupplier, configs)
-        │
-        ├─ REAL  → VisionIOPhoton  (PhotonVision, multi-tag PnP)
-        │          VisionIOLimelight (YALL, MegaTag 1 + MegaTag 2)
-        ├─ SIM   → VisionIOSim    (extends VisionIOPhoton, PhotonCameraSim)
-        │          (Limelight → no-op; no PhotonVision sim equivalent)
-        └─ REPLAY→ no-op VisionIO (AKit replays logged inputs automatically)
-                │
-                ▼
-         Vision (SubsystemBase)
-          ├─ filters bad observations (ambiguity, Z error, field boundaries)
-          ├─ scales std devs: distance²/tagCount × stdDevFactor
-          │    MegaTag 2: ½ linear, 1e6× angular (heading locked)
-          └─ calls consumer (drive::addVisionMeasurement) for accepted poses
-```
-
-### Key design decisions
-
-- **`@AutoLog` parallel arrays** — `VisionIOInputs` uses parallel primitive/struct arrays (`double[]`, `Pose3d[]`, `int[]`) instead of a `PoseObservation[]` record. AdvantageKit's annotation processor only serializes WPILib struct types; custom records cause the field to be typed `Object[]` and break all accessors in `Vision.periodic()`.
-- **`VisionIO.updateInputs` is `default`** — allows `new VisionIO() {}` no-op for REPLAY/Limelight-in-SIM without subclassing. Consequence: `VisionIO` is NOT a `@FunctionalInterface`; use anonymous inner classes (not lambdas) in tests.
-- **`AprilTagFields.kDefaultField`** — always `k2026RebuiltWelded`. Using `kDefaultField` means the factory tracks future season defaults automatically.
-- **`poseSupplier` must be the TRUE physics position** — `VisionIOSim` uses this supplier to place the simulated camera. Always pass `() -> drive.getSimulatedPose().orElse(drive.getPose())`, NOT `drive::getPose`. If you use the estimator pose and then inject an estimator error (e.g. push-correction test), the camera sim will be moved to the wrong position and stop detecting tags — breaking the very correction you're testing.
-- **MegaTag 1 via NT queue** — `megatag1Subscriber.readQueue()` drains every frame since the last cycle so no poses are dropped between 20 ms loops.
-- **Orientation via YALL `withRobotOrientation`** — `limelight.getSettings().withRobotOrientation(new Orientation3d(rot3d, zero))` sets the NT key `robot_orientation_set` and flushes; the Limelight uses this to lock its heading for MegaTag 2.
-
-### Usage example
-
-```java
-Vision vision = VisionFactory.build(
-    drive::addVisionMeasurement,
-    () -> drive.getSimulatedPose().orElse(drive.getPose()),  // TRUE physics position, not estimator
-    drive::getRotation,
-    new CameraConfig[] {
-        new CameraConfig.Builder("photon_front")
-            .robotToCamera(FRONT_CAM_TRANSFORM)
-            .backend(CameraConfig.Backend.PHOTON)
-            .build(),
-        new CameraConfig.Builder("limelight")
-            .robotToCamera(REAR_CAM_TRANSFORM)
-            .backend(CameraConfig.Backend.LIMELIGHT)
-            .stdDevFactor(0.8)   // trust this camera more
-            .build()
-    });
-```
-
-See `/new-vision-camera` for the step-by-step wiring guide.
+| Topic | File |
+|---|---|
+| `SwerveConstants` field reference, units conventions, speed accessors | [docs/configuration.md](docs/configuration.md) |
+| `RobotProfile` pattern, REAL/SIM branching, field length, vision wiring | [docs/robot-profiles.md](docs/robot-profiles.md) |
+| Simulation scenarios, Gradle flags (`-PtestSim` / `-PvisualTest` / `-PwebUI`), AdvantageScope | [docs/simulation.md](docs/simulation.md) |
+| Test pyramid in depth, per-cycle call order, `SimulatedArena` teardown, log analysis | [docs/testing.md](docs/testing.md) |
+| Vision architecture (IO pattern, design decisions, usage example) | [docs/vision.md](docs/vision.md) |
+| Motor calibration workflow (sim ramp → SysId → apply gains) | [docs/calibration.md](docs/calibration.md) |
+| High-level architecture overview | [docs/architecture.md](docs/architecture.md) |
+| Local / Codespaces / claude.ai/code / CI environments + trusted-domain list | [docs/environment.md](docs/environment.md) |
+| Student-facing setup walkthrough (fork → deploy) | [docs/student-setup.md](docs/student-setup.md) |
+| Contribution rules (test first, docs in sync, replay validation) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ---
 

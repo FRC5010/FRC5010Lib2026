@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.sim;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -22,10 +22,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 
 import static edu.wpi.first.units.Units.MetersPerSecond;
 import static edu.wpi.first.units.Units.RadiansPerSecond;
@@ -59,10 +59,12 @@ public class WebDriveController {
     private final AtomicBoolean[] buttons = new AtomicBoolean[6]; // A,B,X,Y,LB,RB
     private final AtomicLong lastCommandMs = new AtomicLong(0);
 
-    // Written by robot thread (DemoIntake), read by HTTP thread (state endpoint)
-    private final AtomicInteger heldFuelBuf      = new AtomicInteger(0);
-    private final AtomicBoolean intakeExtendedBuf = new AtomicBoolean(false);
-    private final AtomicInteger scoredFuelBuf    = new AtomicInteger(0);
+    // Pull-style demo state suppliers — wired by {@link #bindDemoState} if a demo intake exists.
+    // Defaults return zero/false so the /api/state JSON always has the fields populated.
+    // Suppliers are read from the HTTP thread; implementations must be thread-safe (volatile or atomic).
+    private volatile IntSupplier heldFuelSupplier      = () -> 0;
+    private volatile BooleanSupplier intakeExtendedSupplier = () -> false;
+    private volatile IntSupplier scoredFuelSupplier    = () -> 0;
 
     // Pending DriverStation control — written by HTTP, applied on robot thread.
     // Nullable: null means "not set in this POST" so the robot thread skips that field.
@@ -180,12 +182,16 @@ public class WebDriveController {
         return new Trigger(getButton(idx));
     }
 
-    /** Called by {@link DemoIntake} on the robot thread each cycle. */
-    public void setHeldFuel(int count)          { heldFuelBuf.set(count); }
-    /** Called by {@link DemoIntake} on the robot thread each cycle. */
-    public void setIntakeExtended(boolean ext)  { intakeExtendedBuf.set(ext); }
-    /** Called by {@link DemoIntake} on the robot thread each cycle. */
-    public void setScored(int count)            { scoredFuelBuf.set(count); }
+    /**
+     * Binds suppliers that the {@code /api/state} JSON reads each request to surface
+     * demo-intake state in the web UI. Suppliers are invoked from the HTTP thread, so
+     * implementations must be thread-safe (volatile or atomic backing fields).
+     */
+    public void bindDemoState(IntSupplier heldFuel, BooleanSupplier intakeExtended, IntSupplier scoredFuel) {
+        this.heldFuelSupplier      = heldFuel;
+        this.intakeExtendedSupplier = intakeExtended;
+        this.scoredFuelSupplier    = scoredFuel;
+    }
 
     private long age() { return System.currentTimeMillis() - lastCommandMs.get(); }
 
@@ -277,7 +283,7 @@ public class WebDriveController {
             "\"heldFuel\":%d,\"intakeExtended\":%b,\"scoredFuel\":%d}",
             p[0], p[1], p[2], maxLinearMps, maxAngularRps,
             enabledBuf.get(), allianceBuf.get(), isConnected(),
-            heldFuelBuf.get(), intakeExtendedBuf.get(), scoredFuelBuf.get());
+            heldFuelSupplier.getAsInt(), intakeExtendedSupplier.getAsBoolean(), scoredFuelSupplier.getAsInt());
         respond(ex, 200, "application/json", json);
     }
 

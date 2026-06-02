@@ -87,20 +87,27 @@ test {
 // Simulation configuration (e.g. environment variables).
 // Replay mode (-Plog=...) must run without HAL sim extensions — AdvantageKit
 // enforces this and throws if the GUI or DriverStation extensions are present.
-if (!project.hasProperty('log')) {
+// Web-only mode (-PwebUI) skips Glass too — the browser provides the field
+// view and the driver inputs, and the WebDriveController drives DriverStationSim
+// programmatically so the Glass DS widget isn't needed either.
+if (!project.hasProperty('log') && !project.hasProperty('webUI')) {
     wpi.sim.addGui().defaultEnabled = true
     wpi.sim.addDriverstation()
 }
 
 // Forward simulation flags to the JVM as system properties so Robot code can read them.
 // Usage:
+//   ./gradlew simulateJava -PwebUI                            → web UI on port 5800, no Glass window
 //   ./gradlew simulateJava -PvisualTest                       → Layer 4 visual-test sequence (interactive)
 //   ./gradlew simulateJava -PvisualTest -PvisualTestExit      → visual test + auto-exit when done
 //   ./gradlew simulateJava -PtestSim                          → SimRobotProfile (lightweight)
 //   ./gradlew simulateJava -Plog=logs/foo.wpilog              → replay mode (headless, no GUI)
 //   ./gradlew simulateJava -Plog=... -PvisualTest -PreplayExit→ replay + auto-exit when done
-// Default (no flag): RealRobotProfile + IronMaple physics — matches VSCode "Simulate Robot Code".
+// Default (no flag): RealRobotProfile + IronMaple physics, Glass only (no web UI).
 tasks.withType(JavaExec).configureEach {
+    if (project.hasProperty('webUI')) {
+        systemProperty 'webUI', 'true'
+    }
     if (project.hasProperty('visualTest')) {
         systemProperty 'visualTest', 'true'
     }

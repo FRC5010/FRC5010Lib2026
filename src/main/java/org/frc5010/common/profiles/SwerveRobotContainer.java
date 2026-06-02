@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.profiles;
 
 import static edu.wpi.first.units.Units.Meters;
 import static edu.wpi.first.units.Units.MetersPerSecond;
@@ -17,6 +17,11 @@ import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import org.frc5010.common.input.ConfigurableController;
+import org.frc5010.common.input.DriveVector;
+import org.frc5010.common.input.JoystickAxis;
+import org.frc5010.common.sim.SwerveVisualTest;
+import org.frc5010.common.sim.WebDriveController;
 import org.frc5010.common.vision.Vision;
 
 /**
@@ -73,11 +78,8 @@ public abstract class SwerveRobotContainer {
    */
   protected Vision vision = null;
 
-  /** Browser-based field visualization and virtual controller. Non-null only in simulation. */
+  /** Browser-based field visualization and virtual controller. Non-null only when {@code -PwebUI} is set. */
   protected WebDriveController webController = null;
-
-  /** Demo intake/scoring simulation driven by LB/RB/A/B/X/Y web buttons. Non-null only in simulation. */
-  protected DemoIntake demoIntake = null;
 
   // Stored when constructed from a RobotProfile; null when constructed from a bare drive.
   private final RobotProfile profile;
@@ -192,10 +194,9 @@ public abstract class SwerveRobotContainer {
    * {@code super.configureBindings()} first preserves the keyboard drive while adding new bindings.
    */
   protected void configureBindings() {
-    if (RobotBase.isSimulation()) {
+    if (RobotBase.isSimulation() && Boolean.getBoolean("webUI")) {
       webController = new WebDriveController(drive);
       webController.start();
-      demoIntake = new DemoIntake(webController);
 
       // Apply pending enable/alliance changes from the web interface on a command that
       // runs even while the robot is disabled. The drive default command cannot do this:
@@ -215,9 +216,6 @@ public abstract class SwerveRobotContainer {
     drive.setDefaultCommand(
         Commands.run(
             () -> {
-              // Run intake/scoring demo logic every enabled cycle.
-              if (demoIntake != null) demoIntake.periodic(drive.getPose());
-
               double flip =
                   DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
                       ? -1.0 : 1.0;

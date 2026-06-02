@@ -1,4 +1,4 @@
-package org.frc5010.common.drive.swerve;
+package org.frc5010.common.input;
 
 import edu.wpi.first.math.geometry.Translation2d;
 import java.util.function.DoubleSupplier;

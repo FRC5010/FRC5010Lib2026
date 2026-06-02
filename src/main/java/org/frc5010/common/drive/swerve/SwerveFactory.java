@@ -15,6 +15,8 @@ import org.frc5010.common.drive.swerve.akit.ModuleIOSim;
 import org.frc5010.common.drive.swerve.akit.ModuleIOSimPhysics;
 import org.frc5010.common.robot.Mode;
 import org.frc5010.common.robot.RobotMode;
+import org.frc5010.common.sim.Arena2026Patch;
+import org.frc5010.common.sim.GamePieceSpawner;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;
 import swervelib.simulation.ironmaple.simulation.drivesims.COTS;
 import swervelib.simulation.ironmaple.simulation.drivesims.SwerveDriveSimulation;

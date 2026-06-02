@@ -11,12 +11,12 @@ import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.wpilibj.RobotBase;
-import org.frc5010.common.drive.swerve.RobotProfile;
 import org.frc5010.common.drive.swerve.SwerveConstants;
 import org.frc5010.common.drive.swerve.SwerveConstants.GyroType;
 import org.frc5010.common.drive.swerve.SwerveConstants.ModuleType;
 import org.frc5010.common.drive.swerve.SwerveFactory;
 import org.frc5010.common.drive.swerve.akit.AkitSwerveDrive;
+import org.frc5010.common.profiles.RobotProfile;
 import org.frc5010.common.vision.CameraConfig;
 import org.frc5010.common.vision.Vision;
 import org.frc5010.common.vision.VisionFactory;
@@ -36,7 +36,7 @@ import org.frc5010.common.vision.VisionFactory;
  *
  * <p>This profile is selected by default when running from VSCode's "Simulate Robot Code" menu
  * ({@code ./gradlew simulateJava}). Automated testing agents use {@code -PtestSim} instead to
- * get the lightweight {@link org.frc5010.common.drive.swerve.SimRobotProfile}.
+ * get the lightweight {@link org.frc5010.common.profiles.SimRobotProfile}.
  */
 public class RealRobotProfile extends RobotProfile {
 
