@@ -16,6 +16,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
+import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;
 import swervelib.simulation.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
 import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnFly;
@@ -27,7 +30,7 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  *
  * <p>Driven by three {@link BooleanSupplier} inputs so the same demo logic works
  * from any control source — web UI buttons, keyboard/Xbox buttons, or both OR-ed
- * together. {@link #periodic(Pose2d)} edge-detects rising transitions.
+ * together. Rising edges are detected each cycle via the subsystem's default command.
  *
  * <ul>
  *   <li>{@code extend}  — rising edge latches the intake extended
@@ -41,10 +44,8 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * zone the shot lobs toward the zone-accumulation centre at 40° so fuel builds
  * up where the robot can collect it later.  In both cases launch speed is
  * computed from the ballistic formula v = √(g·d² / (2·cos²θ·(d·tanθ − Δh))).
- *
- * <p>Must be called from the robot thread (inside the drive default command).
  */
-public class DemoIntake {
+public class DemoIntake extends SubsystemBase {
 
   // ---- geometry ----
   private static final double BUMPER_HALF_M      = Units.inchesToMeters(15);
@@ -74,6 +75,7 @@ public class DemoIntake {
   private static final Translation3d BLUE_ZONE_TARGET = new Translation3d(ZONE_DEPTH_M / 2, 4.035, 0.1);
   private static final Translation3d RED_ZONE_TARGET  = new Translation3d(FIELD_WIDTH_M - ZONE_DEPTH_M / 2, 4.035, 0.1);
 
+  private final Supplier<Pose2d> poseSupplier;
   private final BooleanSupplier extendInput;
   private final BooleanSupplier retractInput;
   private final BooleanSupplier fireInput;
@@ -88,17 +90,20 @@ public class DemoIntake {
   private boolean prevRetract = false;
   private boolean prevFire    = false;
 
-  public DemoIntake(BooleanSupplier extend, BooleanSupplier retract, BooleanSupplier fire) {
+  public DemoIntake(
+      Supplier<Pose2d> poseSupplier,
+      BooleanSupplier extend,
+      BooleanSupplier retract,
+      BooleanSupplier fire) {
+    this.poseSupplier = poseSupplier;
     this.extendInput  = extend;
     this.retractInput = retract;
     this.fireInput    = fire;
+    setDefaultCommand(Commands.run(() -> step(poseSupplier.get()), this)
+        .withName("DemoIntakeDefault"));
   }
 
-  /**
-   * Run once per 20 ms robot cycle (inside the drive default command, while enabled).
-   * @param robotPose current robot pose from the drive subsystem
-   */
-  public void periodic(Pose2d robotPose) {
+  private void step(Pose2d robotPose) {
     boolean extend  = extendInput.getAsBoolean();
     boolean retract = retractInput.getAsBoolean();
     boolean fire    = fireInput.getAsBoolean();

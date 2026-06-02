@@ -37,16 +37,14 @@ import org.frc5010.common.vision.Vision;
  *
  * <h3>Minimal subclass for simulation</h3>
  * <pre>{@code
- * public class RobotContainer extends SwerveRobotContainer {
+ * public class RealRobot extends SwerveRobotContainer {
  *   private static final SwerveConstants CONSTANTS = new SwerveConstants.Builder()
  *       .moduleType(ModuleType.SIM).gyroType(GyroType.SIM).build();
  *   private static final Pose2d BLUE_START = new Pose2d(1.5, 2.0, new Rotation2d());
  *
- *   public RobotContainer() {
- *     super(SwerveFactory.build(CONSTANTS, BLUE_START));
+ *   public RealRobot() {
+ *     super(SwerveRobotContainer.selectProfile("frc.robot.RealRobotProfile"));
  *   }
- *
- *   {@literal @}Override protected Pose2d getBlueAllianceStartPose() { return BLUE_START; }
  * }
  * }</pre>
  *
@@ -83,6 +81,30 @@ public abstract class SwerveRobotContainer {
 
   // Stored when constructed from a RobotProfile; null when constructed from a bare drive.
   private final RobotProfile profile;
+
+  /**
+   * Selects the appropriate {@link RobotProfile} for the current execution context.
+   *
+   * <p>Returns {@link SimRobotProfile} when {@code -PtestSim} is set. Otherwise
+   * reflectively instantiates the class named by {@code realProfileClassName}
+   * (no-arg constructor required). Teams can subclass {@code RealRobotProfile}
+   * and pass the subclass name here without changing any common-library code.
+   *
+   * <p>Note: the named class is not instantiated in {@code testSim} mode. If
+   * its constructor ever performs hardware I/O, this avoids a spurious side effect.
+   *
+   * @param realProfileClassName fully-qualified class name of the real robot profile
+   * @throws RuntimeException if the class cannot be found or instantiated
+   */
+  public static RobotProfile selectProfile(String realProfileClassName) {
+    if (Boolean.getBoolean("testSim")) return new SimRobotProfile();
+    try {
+      Class<?> clazz = Class.forName(realProfileClassName);
+      return (RobotProfile) clazz.getDeclaredConstructor().newInstance();
+    } catch (ReflectiveOperationException e) {
+      throw new RuntimeException("Cannot instantiate robot profile: " + realProfileClassName, e);
+    }
+  }
 
   /**
    * Constructs the container from a {@link RobotProfile}.
