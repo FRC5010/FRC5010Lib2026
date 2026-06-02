@@ -261,6 +261,11 @@ Symptom if either is missing: the web Enable button appears to toggle but the ro
 | Limelight IO via YALL (REAL) | `src/main/java/org/frc5010/common/vision/VisionIOLimelight.java` |
 | Vision sim IO (extends VisionIOPhoton) | `src/main/java/org/frc5010/common/vision/VisionIOSim.java` |
 | Vision Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/VisionSubsystemTest.java` |
+| Calibration result record | `src/main/java/org/frc5010/common/drive/swerve/calibration/CalibrationResult.java` |
+| Calibration data-collection routine | `src/main/java/org/frc5010/common/drive/swerve/calibration/MotorCalibrationRoutine.java` |
+| Calibration Layer 2 tests | `src/test/java/org/frc5010/common/subsystem/DriveCalibrationTest.java` |
+| Calibration Layer 3 tests | `src/test/java/org/frc5010/common/subsystem/DriveCalibrationSimPhysicsTest.java` |
+| Calibration guide (student + agent) | `docs/calibration.md` |
 
 ---
 
@@ -426,6 +431,7 @@ See `/new-vision-camera` for the step-by-step wiring guide.
 - `/new-vision-camera` — step-by-step guide for adding a PhotonVision or Limelight camera to the Vision subsystem
 - `/new-game-field` — build a 2D web field + custom IronMaple arena (barriers + game pieces) from a new season's game manual, for when IronMaple hasn't shipped the season arena yet
 - `/validate-replay` — validate replay fidelity after non-trivial logging changes (produce log → replay → check anomalies)
+- `/calibrate-drive` — agent-guided step-by-step motor calibration (sim ramp → SysId → apply gains to TunerX or DriveConstants)
 
 ---
 
