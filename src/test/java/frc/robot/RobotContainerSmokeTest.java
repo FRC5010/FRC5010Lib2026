@@ -105,21 +105,19 @@ class RobotContainerSmokeTest extends SimTestBase {
         "resetToAllianceStart() must delegate to RealRobot without throwing");
   }
 
-  // ── DemoIntake subsystem default command ──────────────────────────────────
+  // ── DemoIntake subsystem periodic ─────────────────────────────────────────
 
   @Test
-  void demoIntakeDefaultCommandRunsWhileEnabled() {
-    // Construct in testSim mode — DemoIntake.configureBindings() fires because
-    // RobotBase.isSimulation() is true, registering DemoIntake with the CommandScheduler
-    // and setting "DemoIntakeDefault" as its default command.
+  void demoIntakePeriodicRunsWhileEnabled() {
+    // Construct in testSim mode — DemoIntake is wired via Trigger bindings (no default
+    // command). The scheduler still calls DemoIntake.periodic() each cycle, which calls
+    // IntakeSimulation.removeObtainedGamePieces(). No extend/retract/fire inputs are
+    // active so no game-piece mutations occur.
     System.setProperty("testSim", "true");
     new RobotContainer();
 
     enableTeleop();
 
-    // Run five scheduler ticks — DemoIntakeDefault and KeyboardDrive default commands
-    // should execute without error. DemoIntake reads SimulatedArena game pieces; no
-    // extend/retract/fire inputs are active so no game-piece mutations occur.
     assertDoesNotThrow(() -> {
       for (int i = 0; i < 5; i++) {
         CommandScheduler.getInstance().run();
@@ -129,9 +127,9 @@ class RobotContainerSmokeTest extends SimTestBase {
   }
 
   @Test
-  void demoIntakeDefaultCommandRunsWhileDisabled() {
-    // DemoIntake's default command does not have ignoringDisable(true), so it is
-    // cancelled while disabled — verifying that the disabled state does not cause errors.
+  void demoIntakePeriodicRunsWhileDisabled() {
+    // DemoIntake has no default command; its periodic() runs regardless of enable state
+    // because SubsystemBase.periodic() is always called by the scheduler.
     System.setProperty("testSim", "true");
     new RobotContainer();
 
