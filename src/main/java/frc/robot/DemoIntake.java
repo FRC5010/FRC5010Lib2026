@@ -15,9 +15,9 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
-import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import org.frc5010.common.sim.SimRobotState;
 import swervelib.simulation.ironmaple.simulation.IntakeSimulation;
 import swervelib.simulation.ironmaple.simulation.IntakeSimulation.IntakeSide;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;
@@ -29,13 +29,18 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * Demo intake and scoring simulation for the 2026 Rebuilt game.
  * Not a real mechanism — for interactive demonstration only.
  *
- * <p>Uses IronMaple's {@link IntakeSimulation} for physics-driven game-piece collection.
- * Controls are exposed as WPILib {@link Command}s so callers bind them to
+ * <p>Extends {@link SimRobotState}, which owns the {@link IntakeSimulation} instance,
+ * the {@code periodic()} cleanup loop, generic {@code extendCommand()} /
+ * {@code retractCommand()}, and automatic web UI state binding. This class adds
+ * game-specific logic: Fuel piece type and dimensions, ballistic projectile firing,
+ * and hub-scoring callbacks.
+ *
+ * <p>Controls are exposed as WPILib {@link Command}s so callers bind them to
  * {@link edu.wpi.first.wpilibj2.command.button.Trigger}s in the standard WPILib pattern:
  *
  * <ul>
- *   <li>{@link #extendCommand()} — extends the intake and starts collecting Fuel
- *   <li>{@link #retractCommand()} — retracts the intake and stops collecting
+ *   <li>{@code extendCommand()} — extends the intake and starts collecting Fuel (from base)
+ *   <li>{@code retractCommand()} — retracts the intake and stops collecting (from base)
  *   <li>{@link #fireCommand()} — fires one held Fuel piece toward the current target
  * </ul>
  *
@@ -45,7 +50,7 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * up where the robot can collect it later.  In both cases launch speed is
  * computed from the ballistic formula v = √(g·d² / (2·cos²θ·(d·tanθ − Δh))).
  */
-public class DemoIntake extends SubsystemBase {
+public class DemoIntake extends SimRobotState {
 
   // ---- geometry ----
   private static final double BUMPER_HALF_M = Units.inchesToMeters(15);
@@ -71,64 +76,33 @@ public class DemoIntake extends SubsystemBase {
       new Translation3d(FIELD_WIDTH_M - ZONE_DEPTH_M / 2, 4.035, 0.1);
 
   private final Supplier<Pose2d> poseSupplier;
-  private final IntakeSimulation intakeSimulation;
-
-  // Volatile so HTTP thread (web /api/state) sees fresh values without locking.
-  private volatile boolean intakeExtended = false;
-  // Scored count written on robot thread (in projectile hit callback), read by HTTP thread.
+  // Written on robot thread (projectile hit callback), read by HTTP thread via getScoredCount().
   private final AtomicInteger scoredFuelCount = new AtomicInteger(0);
 
   /**
    * Creates a demo intake attached to the given IronMaple drive-train simulation.
+   * Web UI state binding happens automatically via {@link org.frc5010.common.sim.WebControl#getInstance()}.
    *
    * @param driveSim     physics drive-train (from {@code drive.getDriveTrainSimulation().get()})
    * @param poseSupplier supplier of the current robot pose (used for projectile launch origin)
-   * @param webControl   web UI facade for state binding, or {@code null} when not in web UI mode
    */
-  public DemoIntake(
-      AbstractDriveTrainSimulation driveSim,
-      Supplier<Pose2d> poseSupplier,
-      org.frc5010.common.sim.WebControl webControl) {
+  public DemoIntake(AbstractDriveTrainSimulation driveSim, Supplier<Pose2d> poseSupplier) {
+    super(IntakeSimulation.OverTheBumperIntake(
+        "Fuel", driveSim, Inches.of(24), Inches.of(12), IntakeSide.FRONT, 5));
     this.poseSupplier = poseSupplier;
-    intakeSimulation = IntakeSimulation.OverTheBumperIntake(
-        "Fuel", driveSim, Inches.of(24), Inches.of(12), IntakeSide.FRONT, 5);
-    intakeSimulation.register();
-    if (webControl != null) {
-      webControl.bindDemoState(this::getHeldFuel, this::isIntakeExtended, this::getScoredCount);
-    }
   }
 
   @Override
-  public void periodic() {
-    intakeSimulation.removeObtainedGamePieces(SimulatedArena.getInstance());
-  }
+  protected int getScoredCount() { return scoredFuelCount.get(); }
 
-  // ---- state accessors (thread-safe reads for HTTP thread) ----
+  // ---- public accessors (aliases onto SimRobotState state) ----
 
   /** Number of Fuel pieces currently held. */
-  public int getHeldFuel()          { return intakeSimulation.getGamePiecesAmount(); }
+  public int getHeldFuel()          { return getHeldPieces(); }
   /** Whether the intake is currently extended. */
-  public boolean isIntakeExtended() { return intakeExtended; }
-  /** Fuel pieces scored in the hub since startup. */
-  public int getScoredCount()       { return scoredFuelCount.get(); }
+  public boolean isIntakeExtended() { return isExtended(); }
 
-  // ---- command factories ----
-
-  /** Extends the intake and starts collecting game pieces. */
-  public Command extendCommand() {
-    return Commands.runOnce(() -> {
-      intakeSimulation.startIntake();
-      intakeExtended = true;
-    }, this).withName("ExtendIntake");
-  }
-
-  /** Retracts the intake and stops collecting. */
-  public Command retractCommand() {
-    return Commands.runOnce(() -> {
-      intakeSimulation.stopIntake();
-      intakeExtended = false;
-    }, this).withName("RetractIntake");
-  }
+  // ---- game-specific command ----
 
   /** Fires one held Fuel piece using ballistic physics. No-op if nothing is held. */
   public Command fireCommand() {

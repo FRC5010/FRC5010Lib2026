@@ -20,6 +20,17 @@ import org.frc5010.common.input.WebXboxController;
  */
 public class WebControl {
 
+    private static WebControl instance;
+
+    /**
+     * Returns the active web UI instance, or empty when not running in web UI mode.
+     * Valid after {@link org.frc5010.common.profiles.SwerveRobotContainer#configureBindings()}
+     * completes — do not call during static initialisation.
+     */
+    public static java.util.Optional<WebControl> getInstance() {
+        return java.util.Optional.ofNullable(instance);
+    }
+
     private final WebDriveController webController;
 
     /**
@@ -31,6 +42,7 @@ public class WebControl {
      * @param resetPose  called when the alliance selection changes (re-anchors start pose)
      */
     public WebControl(AkitSwerveDrive drive, WebXboxController controller, Runnable resetPose) {
+        instance = this;
         webController = new WebDriveController(drive);
         webController.start();
 
