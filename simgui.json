@@ -1,0 +1,15 @@
+{
+  "NTField": {
+    "NT:/SmartDashboard/Field": {
+      "sources": {
+        "NT:/SmartDashboard/Field/Fuel": {
+          "image": {
+            "filename": "src/main/deploy/fuel.png"
+          },
+          "width": 0.152,
+          "height": 0.152
+        }
+      }
+    }
+  }
+}

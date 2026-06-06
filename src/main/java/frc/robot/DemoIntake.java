@@ -13,8 +13,12 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
+import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.frc5010.common.sim.SimRobotState;
@@ -34,6 +38,11 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * {@code retractCommand()}, and automatic web UI state binding. This class adds
  * game-specific logic: Fuel piece type and dimensions, ballistic projectile firing,
  * and hub-scoring callbacks.
+ *
+ * <p>All Fuel pieces (grounded + in-flight) are published each cycle to the
+ * {@code "Fuel"} {@link FieldObject2d} on the provided {@link Field2d} so they
+ * appear in Glass/AdvantageScope. The same positions are served by the web
+ * server's {@code /api/gamepieces} endpoint.
  *
  * <p>Controls are exposed as WPILib {@link Command}s so callers bind them to
  * {@link edu.wpi.first.wpilibj2.command.button.Trigger}s in the standard WPILib pattern:
@@ -78,6 +87,8 @@ public class DemoIntake extends SimRobotState {
   private final Supplier<Pose2d> poseSupplier;
   // Written on robot thread (projectile hit callback), read by HTTP thread via getScoredCount().
   private final AtomicInteger scoredFuelCount = new AtomicInteger(0);
+  // Nullable — non-null only when Field2d is provided (sim mode with NT publishing).
+  private final FieldObject2d fuelField;
 
   /**
    * Creates a demo intake attached to the given IronMaple drive-train simulation.
@@ -85,11 +96,36 @@ public class DemoIntake extends SimRobotState {
    *
    * @param driveSim     physics drive-train (from {@code drive.getDriveTrainSimulation().get()})
    * @param poseSupplier supplier of the current robot pose (used for projectile launch origin)
+   * @param field2d      the Field2d published to NetworkTables, used to render Fuel pieces in
+   *                     Glass and AdvantageScope; pass {@code null} to skip NT publishing
    */
-  public DemoIntake(AbstractDriveTrainSimulation driveSim, Supplier<Pose2d> poseSupplier) {
+  public DemoIntake(
+      AbstractDriveTrainSimulation driveSim,
+      Supplier<Pose2d> poseSupplier,
+      Field2d field2d) {
     super(IntakeSimulation.OverTheBumperIntake(
-        "Fuel", driveSim, Inches.of(24), Inches.of(12), IntakeSide.FRONT, 5));
+        "Fuel", driveSim, Inches.of(24), Inches.of(12), IntakeSide.FRONT, 50));
     this.poseSupplier = poseSupplier;
+    this.fuelField = field2d != null ? field2d.getObject("Fuel") : null;
+  }
+
+  @Override
+  public void periodic() {
+    super.periodic();
+    if (fuelField == null) return;
+    List<Pose2d> poses = new ArrayList<>();
+    try {
+      for (var piece : SimulatedArena.getInstance().gamePiecesOnField()) {
+        if ("Fuel".equals(piece.getType())) poses.add(piece.getPoseOnField());
+      }
+      for (var proj : SimulatedArena.getInstance().gamePieceLaunched()) {
+        if ("Fuel".equals(proj.getType())) {
+          var p3 = proj.getPose3d();
+          poses.add(new Pose2d(p3.getX(), p3.getY(), p3.getRotation().toRotation2d()));
+        }
+      }
+    } catch (Exception ignored) {}
+    fuelField.setPoses(poses);
   }
 
   @Override

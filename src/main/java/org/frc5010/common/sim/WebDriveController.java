@@ -95,6 +95,7 @@ public class WebDriveController {
             server.createContext("/api/gamepieces", this::handleGamePieces);
             server.createContext("/api/stop",       this::handleStop);
             server.createContext("/tags/",          this::handleTagImage);
+            server.createContext("/fuel.png",       this::handleFuelImage);
             server.createContext("/",               this::handleRoot);
             server.setExecutor(executor);
             server.start();
@@ -252,6 +253,20 @@ public class WebDriveController {
         } catch (Exception ignored) {}
         sb.append("]}");
         respond(ex, 200, "application/json", sb.toString());
+    }
+
+    /** Serves the Fuel game-piece PNG ({@code /fuel.png}) from the classpath. */
+    private void handleFuelImage(HttpExchange ex) throws IOException {
+        addCors(ex);
+        if (!"GET".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(405, -1); return; }
+        try (InputStream in = getClass().getResourceAsStream("/web/fuel.png")) {
+            if (in == null) { ex.sendResponseHeaders(404, -1); return; }
+            byte[] body = in.readAllBytes();
+            ex.getResponseHeaders().set("Content-Type", "image/png");
+            ex.getResponseHeaders().set("Cache-Control", "max-age=86400");
+            ex.sendResponseHeaders(200, body.length);
+            try (OutputStream os = ex.getResponseBody()) { os.write(body); }
+        }
     }
 
     /** Serves AprilTag PNGs from the {@code /web/tags/} classpath resources. */

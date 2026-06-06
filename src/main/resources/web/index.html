@@ -543,6 +543,9 @@ for (const t of aprilTags) {
   tagImages[t.id] = img;
 }
 
+const fuelImg = new Image();
+fuelImg.src = '/fuel.png';
+
 // Draw each AprilTag as a screen-aligned fiducial billboard with a facing-direction
 // tick and its ID. Top-down a tag is edge-on, so we billboard the image for legibility
 // and use the tick to convey which way it faces.
@@ -583,31 +586,45 @@ function drawAprilTags(ctx, W, H) {
 
 // Draw grounded Fuel pieces and in-flight projectiles.
 function drawGamePieces(ctx, W, H) {
-  const rPx = Math.max(4, mToPx(0.075, W, H));
+  const sz = Math.max(8, mToPx(0.15, W, H));
+  const half = sz / 2;
+  const useFuelImg = fuelImg.complete && fuelImg.naturalWidth > 0;
 
-  // Grounded pieces — solid yellow disc
-  ctx.strokeStyle = 'rgba(120,90,0,0.8)';
-  ctx.lineWidth = 1;
+  // Grounded pieces — fuel image or yellow disc fallback
   for (const p of gamePieces) {
     const { cx, cy } = fieldPt(p.x, p.y, W, H);
-    ctx.beginPath();
-    ctx.arc(cx, cy, rPx, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(245,210,40,0.95)';
-    ctx.fill();
-    ctx.stroke();
+    if (useFuelImg) {
+      ctx.drawImage(fuelImg, cx - half, cy - half, sz, sz);
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, half, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(245,210,40,0.95)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,90,0,0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   }
 
-  // Flying projectiles — smaller, brighter, white-ringed disc
-  const rFly = Math.max(3, mToPx(0.055, W, H));
+  // Flying projectiles — slightly smaller, white-ringed or image at 70% opacity
+  const szFly = Math.max(6, mToPx(0.11, W, H));
+  const halfFly = szFly / 2;
   for (const p of flyingPieces) {
     const { cx, cy } = fieldPt(p.x, p.y, W, H);
-    ctx.beginPath();
-    ctx.arc(cx, cy, rFly, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(255,230,80,1.0)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,200,0.9)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    if (useFuelImg) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.drawImage(fuelImg, cx - halfFly, cy - halfFly, szFly, szFly);
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, halfFly, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(255,230,80,1.0)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,200,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
   }
 }
 
