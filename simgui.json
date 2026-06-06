@@ -4,7 +4,7 @@
       "sources": {
         "NT:/SmartDashboard/Field/Fuel": {
           "image": {
-            "filename": "src/main/deploy/fuel.png"
+            "filename": "src/main/resources/web/fuel.png"
           },
           "width": 0.152,
           "height": 0.152
