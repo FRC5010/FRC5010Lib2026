@@ -30,10 +30,16 @@ RobotProfile (abstract)
 
 SwerveRobotContainer (abstract — keyboard drive, alliance pose, auto dispatch)
  ├── ConfigurableController    (wraps GenericHID port → JoystickAxis + Trigger)
- │    └── XboxConfigurableController  (named accessors: leftY(), rightX(), a(), leftBumper(), …)
- │         └── JoystickAxis   (chainable: deadzone → power → scale → limit → negate)
+ │    ├── XboxConfigurableController  (named accessors: leftY(), rightX(), a(), leftBumper(), …)
+ │    │    └── WebXboxController      (injects web button suppliers; used when -PwebUI is set)
+ │    └── JoystickAxis   (chainable: deadzone → power → scale → limit → negate)
  │         └── DriveVector    (two JoystickAxis → Translation2d, magnitude transforms, unitCircle())
- └── frc.robot.RobotContainer (concrete — selectProfile(), optional custom bindings)
+ ├── WebControl (optional singleton — HTTP server port 5800, web button injection; -PwebUI only)
+ └── frc.robot.RealRobot (concrete — extends SwerveRobotContainer, owns DemoIntake)
+      └── frc.robot.RobotContainer (thin shell — delegates getAutonomousCommand() and resetToAllianceStart())
+
+SimRobotState (abstract SubsystemBase — IntakeSimulation lifecycle, web UI state binding)
+ └── frc.robot.DemoIntake (2026 Rebuilt: Fuel piece intake, ballistic firing, hub scoring)
 ```
 
 ---

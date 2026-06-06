@@ -54,6 +54,7 @@ private static final SwerveConstants CONSTANTS = new SwerveConstants.Builder()
 | Topic | Link |
 |-------|------|
 | **New team? Start here** — fork, measure, configure, simulate, deploy | [Student Setup Guide](docs/student-setup.md) |
+| **No local install?** — build, test, and drive from a browser tab | [GitHub Codespaces](docs/codespaces.md) |
 | All `SwerveConstants` fields, defaults, and valid ranges | [Configuration](docs/configuration.md) |
 | Simulation scenarios, Gradle flags, AdvantageScope | [Simulation](docs/simulation.md) |
 | `RobotProfile` pattern, wiring hardware IO | [Robot Profiles](docs/robot-profiles.md) |
@@ -80,4 +81,4 @@ private static final SwerveConstants CONSTANTS = new SwerveConstants.Builder()
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/clrozeboom/FRC5010Claude)
 
-Full build, test, and headless simulation work out of the box. Port 5810 (NT4) is forwarded automatically so AdvantageScope on your laptop can connect to a sim running in the cloud. See [Simulation → Codespaces](docs/simulation.md#github-codespaces).
+Full build, test, and headless simulation work out of the box — no local install required. The browser-based web UI (`-PwebUI`) opens automatically on port 5800 so you can drive and interact with the robot from any tab. See [docs/codespaces.md](docs/codespaces.md) for the full walkthrough.

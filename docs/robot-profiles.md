@@ -12,12 +12,22 @@ The `RobotProfile` pattern lets you swap robot configurations without changing a
 | VSCode "Simulate Robot Code" | `RealRobotProfile` | `.\gradlew.bat simulateJava` (default) |
 | Real hardware | `RealRobotProfile` | Deploy to RoboRIO |
 
-`RobotContainer.selectProfile()` picks automatically:
+`SwerveRobotContainer.selectProfile()` picks automatically:
 
 ```java
-if (RobotBase.isReal()) return new RealRobotProfile();
+// Returns SimRobotProfile when -PtestSim is set.
+// Otherwise reflectively instantiates the named class (RealRobotProfile by default):
 if (Boolean.getBoolean("testSim")) return new SimRobotProfile();
-return new RealRobotProfile(); // default for VSCode "Simulate Robot Code"
+return (RobotProfile) Class.forName(realProfileClassName)
+    .getDeclaredConstructor().newInstance();
+```
+
+`RealRobot` passes the profile class name:
+
+```java
+public RealRobot() {
+    super(SwerveRobotContainer.selectProfile("frc.robot.RealRobotProfile"));
+}
 ```
 
 ---
@@ -116,7 +126,7 @@ if (RobotBase.isReal()) {
 
 ## `SwerveRobotContainer` — what you get for free
 
-`frc.robot.RobotContainer` extends `SwerveRobotContainer`, which provides:
+`frc.robot.RealRobot` extends `SwerveRobotContainer`, which provides:
 
 | Feature | Details |
 |---------|---------|
@@ -127,9 +137,10 @@ if (RobotBase.isReal()) {
 
 ### Customising bindings
 
-`controller` is a `ConfigurableController` (protected field from `SwerveRobotContainer`). Use its `button(int)` and `axis(int)` methods, or swap in an `XboxConfigurableController` for named accessors:
+`controller` is an `XboxConfigurableController` (protected field from `SwerveRobotContainer`). Add bindings by overriding `configureBindings()` in `RealRobot.java`:
 
 ```java
+// In RealRobot.java
 @Override
 protected void configureBindings() {
     super.configureBindings();           // keeps keyboard drive on port 0
@@ -142,6 +153,7 @@ protected void configureBindings() {
 To replace the keyboard drive with an Xbox controller (typical for competition):
 
 ```java
+// In RealRobot.java
 @Override
 protected void configureBindings() {
     // Do NOT call super — we're replacing the entire default command.
@@ -174,9 +186,10 @@ protected void configureBindings() {
 
 ### Customising auto
 
-Override `getAutonomousCommand()` to integrate PathPlanner, Choreo, etc.:
+Override `getAutonomousCommand()` in `RealRobot.java` to integrate PathPlanner, Choreo, etc.:
 
 ```java
+// In RealRobot.java
 @Override
 public Command getAutonomousCommand() {
     if (Boolean.getBoolean("visualTest")) return SwerveVisualTest.build(drive, vision, this::getAllianceStartPose);

@@ -31,9 +31,11 @@ RobotProfile (abstract) ──► SimRobotProfile (library CI/dev)
         │
         ▼
 SwerveRobotContainer (abstract) ← keyboard drive, alliance pose, visual-test auto
-        │
-        ▼
-frc.robot.RobotContainer (concrete — extends SwerveRobotContainer)
+ ├── WebControl (optional singleton — HTTP server port 5800; -PwebUI only)
+ └── frc.robot.RealRobot (concrete — extends SwerveRobotContainer, owns DemoIntake)
+      └── frc.robot.RobotContainer (thin shell — delegates getAutonomousCommand / resetToAllianceStart)
+
+SimRobotState (abstract SubsystemBase) ──► frc.robot.DemoIntake (2026 Fuel intake + ballistic firing)
 ```
 
 **Critical distinction — `instanceof GyroIOSim` in `AkitSwerveDrive.periodic()`:**
@@ -157,6 +159,7 @@ Symptom if either is missing: the web Enable button appears to toggle but the ro
 | High-level architecture overview | [docs/architecture.md](docs/architecture.md) |
 | Local / Codespaces / claude.ai/code / CI environments + trusted-domain list | [docs/environment.md](docs/environment.md) |
 | Student-facing setup walkthrough (fork → deploy) | [docs/student-setup.md](docs/student-setup.md) |
+| GitHub Codespaces setup and usage (build, sim, web UI, AdvantageScope, log replay) | [docs/codespaces.md](docs/codespaces.md) |
 | Contribution rules (test first, docs in sync, replay validation) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ---

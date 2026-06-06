@@ -239,19 +239,9 @@ Once Glass opens, set the Driver Station to **Autonomous** mode and click **Enab
 
 ### Running in Codespaces or a web environment (headless)
 
-If you're using GitHub Codespaces or the claude.ai/code web environment, there is no display for Glass. Use the visual-test flag, which auto-enables the robot so no manual Driver Station click is needed:
+GitHub Codespaces works without any local install — see [Using GitHub Codespaces](codespaces.md) for the full workflow.
 
-```bash
-xvfb-run ./gradlew simulateJava -PvisualTest
-```
-
-`xvfb-run` provides a virtual display so WPILib can start without crashing — you won't see Glass, but the simulation runs. To observe what's happening:
-
-1. In VS Code's **Ports** panel, find port **5810**. Hover over it and click the globe icon to copy the forwarded address.
-2. In AdvantageScope on your local laptop: **File → Connect to Robot**, paste the forwarded hostname (everything after `https://`, without the slash), port `5810`.
-3. AdvantageScope receives the live data and renders the robot in 3D.
-
-Alternatively, the simulation writes a `.wpilog` file to `logs/` when it finishes. Download it via the VS Code file explorer and open it in AdvantageScope with **File → Open Log** to review the run offline.
+The short version: use `-PwebUI` instead of plain `simulateJava`. The browser-based UI opens automatically on port 5800 and lets you drive and enable the robot from any tab — no Glass window needed.
 
 **If the robot does not move during the visual test:** confirm you used `-PvisualTest`; without it, the robot starts disabled and nothing will happen until you manually click Enable.
 
@@ -364,7 +354,7 @@ Before enabling for the first time on hardware, go through this list:
 
 The default wiring uses keyboard controls (WASD + ER) mapped to joystick port 0 in simulation. For a real match you need an Xbox (or similar) controller at Driver Station port 0.
 
-The library provides `XboxConfigurableController` — a wrapper that gives each button and axis a named method and applies a chainable transform pipeline (deadzone, response curve, scaling). Override `configureBindings()` in `RobotContainer.java` to replace the keyboard drive with it:
+The library provides `XboxConfigurableController` — a wrapper that gives each button and axis a named method and applies a chainable transform pipeline (deadzone, response curve, scaling). Override `configureBindings()` in `RealRobot.java` to replace the keyboard drive with it:
 
 ```java
 @Override
@@ -430,7 +420,7 @@ import org.frc5010.common.input.XboxConfigurableController;
 
 ## Step 9 — Add an autonomous routine (optional)
 
-Override `getAutonomousCommand()` in `RobotContainer.java`:
+Override `getAutonomousCommand()` in `RealRobot.java`:
 
 ```java
 @Override
@@ -485,11 +475,20 @@ PathPlanner must be configured separately. See the [PathPlannerLib docs](https:/
 
 ---
 
+## Working without a local install — GitHub Codespaces
+
+If your computer can't install WPILib (school restrictions, wrong OS, Chromebook, etc.) or you just want to try the library before committing to a local setup, GitHub Codespaces gives you a full build and sim environment in a browser tab — no software install required.
+
+See **[docs/codespaces.md](codespaces.md)** for the full walkthrough: opening a Codespace, running tests, driving the robot from the browser-based web UI, connecting AdvantageScope, and saving your work.
+
+---
+
 ## Where to go next
 
 | Goal | Resource |
 |------|---------|
 | All `SwerveConstants` fields and valid ranges | [Configuration](configuration.md) |
+| Working in GitHub Codespaces | [Codespaces](codespaces.md) |
 | Simulation tools, log replay, AdvantageScope tips | [Simulation](simulation.md) |
 | Running automated tests | [Testing](testing.md) |
 | Vision cameras (PhotonVision / Limelight) | [Robot Profiles → Vision](robot-profiles.md) or `/new-vision-camera` |
