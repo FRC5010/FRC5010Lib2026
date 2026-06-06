@@ -11,16 +11,57 @@
     background: #111; color: #eee; font-family: monospace; overflow: hidden;
     -webkit-tap-highlight-color: transparent;
   }
-  /* ---- field area (canvas + sidebar) ---- */
-  /* The field is portrait (aspect ~0.50), so in a landscape window it is
-     pillar-boxed with dark bars on both sides. The sidebar is overlaid on the
-     left bar (absolute, out of flow) so the canvas spans the FULL window width
-     and the field centres in the window — not in a canvas shrunk by the sidebar. */
+  /* ---- field area (DS panel + canvas) ---- */
   #field-area {
-    flex: 1; min-height: 0; position: relative;
+    flex: 1; min-height: 0; display: flex; flex-direction: row;
+    position: relative;
   }
+
+  /* ---- driver station panel — floats over the left edge of the canvas ---- */
+  #ds-panel {
+    position: absolute; left: 0; top: 0; bottom: 0; z-index: 3;
+    width: 160px;
+    background: rgba(24,24,24,0.92); border-right: 1px solid #2a2a2a;
+    display: flex; flex-direction: column;
+    align-items: stretch; gap: 7px; padding: 10px 8px;
+    overflow-y: auto;
+  }
+  .ds-title {
+    font-size: 10px; color: #555; text-transform: uppercase;
+    letter-spacing: 1px; text-align: center; padding-bottom: 2px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  #conn-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #884444; margin: 2px auto 0;
+    transition: background 0.3s;
+  }
+  #conn-dot.connected { background: #44cc44; }
+  #ds-panel #enable-btn {
+    width: 100%; padding: 10px; border-radius: 8px; border: 2px solid #555;
+    background: #2a2a2a; color: #aaa; cursor: pointer; font-size: 15px; font-weight: bold;
+    transition: all 0.15s; user-select: none;
+  }
+  #ds-panel #enable-btn.enabled { background: #1a5c1a; border-color: #44cc44; color: #fff; }
+  #ds-panel #stop-btn {
+    width: 100%; padding: 10px 8px; border-radius: 8px; border: 2px solid #cc4400;
+    background: #3a1000; color: #ff8844; cursor: pointer; font-size: 14px; font-weight: bold;
+    user-select: none; transition: all 0.15s;
+  }
+  #ds-panel #stop-btn:active { filter: brightness(1.4); }
+  #ds-panel #alliance-row { display: flex; flex-direction: column; gap: 6px; }
+  #ds-panel .alliance-btn {
+    padding: 7px 8px; border: 2px solid #555; border-radius: 6px;
+    background: #222; color: #aaa; cursor: pointer; font-size: 14px; font-weight: bold;
+    transition: all 0.15s; user-select: none; text-align: center;
+  }
+  #ds-panel .alliance-btn.active-blue { background: #003080; border-color: #5599ff; color: #fff; }
+  #ds-panel .alliance-btn.active-red  { background: #800000; border-color: #ff4444; color: #fff; }
+
+  /* ---- canvas wrapper (flex:1, hosts the sidebar overlay) ---- */
+  #canvas-wrap { flex: 1; min-width: 0; position: relative; }
   #field-sidebar {
-    position: absolute; left: 0; top: 0; bottom: 0; z-index: 2;
+    position: absolute; right: 0; top: 0; bottom: 0; z-index: 2;
     width: 60px; background: rgba(20,20,20,0.6);
     display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 16px;
@@ -35,8 +76,8 @@
 
   /* ---- controls row ---- */
   #controls {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px; height: 200px; gap: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px; height: 200px; gap: 10px; flex-shrink: 0;
   }
 
   /* ---- thumbsticks ---- */
@@ -55,41 +96,32 @@
   }
   .stick-base.active .stick-knob { background: #aaa; }
 
-  /* ---- center panel ---- */
-  #center-panel {
-    display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1;
-    min-width: 0; overflow: hidden;
+  /* ---- Xbox face-button diamond ---- */
+  #face-diamond {
+    display: grid;
+    grid-template-areas: ".  y  ." "x  .  b" ".  a  .";
+    grid-template-columns: 36px 36px 36px;
+    grid-template-rows:    36px 36px 36px;
+    gap: 4px; flex-shrink: 0;
   }
+  #face-diamond .btn-y { grid-area: y; }
+  #face-diamond .btn-x { grid-area: x; }
+  #face-diamond .btn-b { grid-area: b; }
+  #face-diamond .btn-a { grid-area: a; }
 
-  /* alliance selector */
-  #alliance-row { display: flex; gap: 6px; }
-  .alliance-btn {
-    padding: 7px 14px; border: 2px solid #555; border-radius: 6px;
-    background: #222; color: #aaa; cursor: pointer; font-size: 14px; font-weight: bold;
-    transition: all 0.15s; user-select: none;
+  /* ---- shoulder buttons (LB / RB) ---- */
+  .bumper-btn {
+    width: 52px; height: 76px;
+    border-radius: 10px; border: 2px solid #666;
+    background: #252525; color: #bbb;
+    cursor: pointer; font-size: 13px; font-weight: bold;
+    user-select: none; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+    transition: filter 0.1s; flex-shrink: 0;
   }
-  .alliance-btn.active-blue { background: #003080; border-color: #5599ff; color: #fff; }
-  .alliance-btn.active-red  { background: #800000; border-color: #ff4444; color: #fff; }
+  .bumper-btn.held, .bumper-btn:active { filter: brightness(1.6); border-color: #aaa; }
 
-  /* enable + stop button row */
-  #enable-stop-row { display: flex; gap: 6px; width: 100%; }
-  #enable-btn {
-    flex: 1; padding: 10px; border-radius: 8px; border: 2px solid #555;
-    background: #2a2a2a; color: #aaa; cursor: pointer; font-size: 15px; font-weight: bold;
-    transition: all 0.15s; user-select: none;
-  }
-  #enable-btn.enabled { background: #1a5c1a; border-color: #44cc44; color: #fff; }
-  #stop-btn {
-    padding: 10px 12px; border-radius: 8px; border: 2px solid #cc4400;
-    background: #3a1000; color: #ff8844; cursor: pointer; font-size: 14px; font-weight: bold;
-    user-select: none; transition: all 0.15s;
-  }
-  #stop-btn:active { filter: brightness(1.4); }
-
-  /* game buttons A B X Y LB RB */
-  #btn-row-abxy, #btn-row-bumpers {
-    display: flex; gap: 6px; justify-content: center;
-  }
+  /* game buttons (face buttons only now) */
   .game-btn {
     width: 36px; height: 36px; border-radius: 7px; border: 2px solid #555;
     background: #2a2a2a; color: #ccc; cursor: pointer; font-size: 12px; font-weight: bold;
@@ -101,16 +133,26 @@
   .btn-b  { background: #4a1a1a; border-color: #cc4444; color: #f88; }
   .btn-x  { background: #1a1a4a; border-color: #4444cc; color: #88f; }
   .btn-y  { background: #4a3a00; border-color: #ccaa00; color: #ff8; }
-  .btn-lb, .btn-rb { width: 46px; background: #252525; border-color: #666; }
-
-  /* Narrow phones: shrink sticks further so they never overlap the buttons. */
-  @media (max-width: 460px) {
-    .stick-base { width: 96px; height: 96px; }
-    .stick-knob { width: 38px; height: 38px; }
-    .game-btn   { width: 32px; height: 32px; font-size: 11px; }
-    .btn-lb, .btn-rb { width: 40px; }
-    #controls   { height: 180px; gap: 4px; padding: 6px; }
+  /* Narrow phones: shrink everything so controls fit. */
+  @media (max-width: 560px) {
+    .stick-base  { width: 96px; height: 96px; }
+    .stick-knob  { width: 38px; height: 38px; }
+    .game-btn    { width: 30px; height: 30px; font-size: 11px; }
+    #face-diamond {
+      grid-template-columns: 30px 30px 30px;
+      grid-template-rows:    30px 30px 30px;
+    }
+    .bumper-btn  { width: 42px; height: 64px; font-size: 11px; }
+    #controls    { height: 180px; gap: 6px; padding: 6px; }
+    #ds-panel    { width: 120px; }
   }
+
+  /* keyboard key hints inside buttons */
+  .key-hint {
+    display: block; font-size: 8px; color: #777; font-weight: normal;
+    letter-spacing: 0; line-height: 1.2;
+  }
+  #enable-btn .key-hint { font-size: 9px; }
 
   /* status bar */
   #status {
@@ -124,50 +166,52 @@
 </head>
 <body>
 <div id="field-area">
-  <div id="field-sidebar">
-    <div class="stat-item">
-      <div class="stat-label">Held</div>
-      <div id="held-count" class="stat-value">0</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-label">Scored</div>
-      <div id="scored-count" class="stat-value">0</div>
+  <div id="ds-panel">
+    <div class="ds-title">Driver Station</div>
+    <div id="conn-dot"></div>
+    <button id="enable-btn" onclick="toggleEnable()">ENABLE<span class="key-hint">Space</span></button>
+    <button id="stop-btn"   onclick="stopRobot()">STOP</button>
+    <div id="alliance-row">
+      <button class="alliance-btn active-blue" id="btn-blue" onclick="selectAlliance('Blue')">Blue</button>
+      <button class="alliance-btn"             id="btn-red"  onclick="selectAlliance('Red')">Red</button>
     </div>
   </div>
-  <canvas id="field-canvas"></canvas>
+  <div id="canvas-wrap">
+    <div id="field-sidebar">
+      <div class="stat-item">
+        <div class="stat-label">Held</div>
+        <div id="held-count" class="stat-value">0</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Scored</div>
+        <div id="scored-count" class="stat-value">0</div>
+      </div>
+    </div>
+    <canvas id="field-canvas"></canvas>
+  </div>
 </div>
 
 <div id="controls">
+  <div class="bumper-btn" data-idx="4">LB<span class="key-hint">Z</span></div>
+
   <div class="stick-wrap">
     <div class="stick-base" id="left-base"><div class="stick-knob" id="left-knob"></div></div>
     <span class="stick-label">Translate</span>
   </div>
 
-  <div id="center-panel">
-    <div id="alliance-row">
-      <button class="alliance-btn active-blue" id="btn-blue" onclick="selectAlliance('Blue')">Blue</button>
-      <button class="alliance-btn"             id="btn-red"  onclick="selectAlliance('Red')">Red</button>
-    </div>
-    <div id="enable-stop-row">
-      <button id="enable-btn" onclick="toggleEnable()">ENABLE</button>
-      <button id="stop-btn"   onclick="stopRobot()">STOP</button>
-    </div>
-    <div id="btn-row-abxy">
-      <div class="game-btn btn-a"  data-idx="0">A</div>
-      <div class="game-btn btn-b"  data-idx="1">B</div>
-      <div class="game-btn btn-x"  data-idx="2">X</div>
-      <div class="game-btn btn-y"  data-idx="3">Y</div>
-    </div>
-    <div id="btn-row-bumpers">
-      <div class="game-btn btn-lb" data-idx="4">LB</div>
-      <div class="game-btn btn-rb" data-idx="5">RB</div>
-    </div>
+  <div id="face-diamond">
+    <div class="game-btn btn-y" data-idx="3">Y<span class="key-hint">G</span></div>
+    <div class="game-btn btn-x" data-idx="2">X<span class="key-hint">V</span></div>
+    <div class="game-btn btn-b" data-idx="1">B<span class="key-hint">C</span></div>
+    <div class="game-btn btn-a" data-idx="0">A<span class="key-hint">F</span></div>
   </div>
 
   <div class="stick-wrap">
     <div class="stick-base" id="right-base"><div class="stick-knob" id="right-knob"></div></div>
     <span class="stick-label">Rotate</span>
   </div>
+
+  <div class="bumper-btn" data-idx="5">RB<span class="key-hint">X</span></div>
 </div>
 
 <div id="status">Connecting…</div>
@@ -191,8 +235,30 @@ let gamePieces = [];        // [{x, y}] grounded Fuel — from /api/gamepieces
 let flyingPieces = [];     // [{x, y}] in-flight Fuel projectiles
 
 // ---- Keyboard ----
-document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-document.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
+// Drive: W/S/ArrowUp/Down = fwd/back, A/D = strafe, Q/E/ArrowLeft/Right = rotate.
+// Buttons: Z=LB(extend), X=RB(retract), F=A(fire), C=B, V=X-btn, G=Y, Space=Enable.
+const KEY_BUTTON_MAP = { 'z': 4, 'x': 5, 'f': 0, 'c': 1, 'v': 2, 'g': 3 };
+
+document.addEventListener('keydown', e => {
+  const k = e.key === ' ' ? ' ' : e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); toggleEnable(); return; }
+  keys[k] = true;
+  const idx = KEY_BUTTON_MAP[k];
+  if (idx !== undefined) {
+    e.preventDefault();
+    buttonHeld[idx] = true;
+    document.querySelector(`[data-idx="${idx}"]`)?.classList.add('held');
+  }
+});
+document.addEventListener('keyup', e => {
+  const k = e.key === ' ' ? ' ' : e.key.toLowerCase();
+  keys[k] = false;
+  const idx = KEY_BUTTON_MAP[k];
+  if (idx !== undefined) {
+    buttonHeld[idx] = false;
+    document.querySelector(`[data-idx="${idx}"]`)?.classList.remove('held');
+  }
+});
 
 function keyboardInputs() {
   const vx    = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)
@@ -246,8 +312,8 @@ function setupStick(baseId, knobId, onUpdate) {
 setupStick('left-base',  'left-knob',  (dx, dy) => { leftX =  dx; leftY = dy; });
 setupStick('right-base', 'right-knob', (dx, dy) => { rightX = dx; });
 
-// ---- Game buttons ----
-document.querySelectorAll('.game-btn').forEach(btn => {
+// ---- Game buttons (face buttons + bumpers) ----
+document.querySelectorAll('.game-btn, .bumper-btn').forEach(btn => {
   const idx = parseInt(btn.dataset.idx);
   btn.addEventListener('pointerdown',  e => { btn.setPointerCapture(e.pointerId); buttonHeld[idx] = true;  btn.classList.add('held'); });
   btn.addEventListener('pointerup',    () => { buttonHeld[idx] = false; btn.classList.remove('held'); });
@@ -299,7 +365,7 @@ function updateAllianceBtns() {
 
 function updateEnableBtn() {
   const btn = document.getElementById('enable-btn');
-  btn.textContent = currentEnabled ? 'DISABLE' : 'ENABLE';
+  btn.innerHTML = (currentEnabled ? 'DISABLE' : 'ENABLE') + '<span class="key-hint">Space</span>';
   btn.className = currentEnabled ? 'enabled' : '';
 }
 
@@ -508,6 +574,9 @@ for (const t of aprilTags) {
   tagImages[t.id] = img;
 }
 
+const fuelImg = new Image();
+fuelImg.src = '/fuel.png';
+
 // Draw each AprilTag as a screen-aligned fiducial billboard with a facing-direction
 // tick and its ID. Top-down a tag is edge-on, so we billboard the image for legibility
 // and use the tick to convey which way it faces.
@@ -548,31 +617,45 @@ function drawAprilTags(ctx, W, H) {
 
 // Draw grounded Fuel pieces and in-flight projectiles.
 function drawGamePieces(ctx, W, H) {
-  const rPx = Math.max(4, mToPx(0.075, W, H));
+  const sz = Math.max(8, mToPx(0.15, W, H));
+  const half = sz / 2;
+  const useFuelImg = fuelImg.complete && fuelImg.naturalWidth > 0;
 
-  // Grounded pieces — solid yellow disc
-  ctx.strokeStyle = 'rgba(120,90,0,0.8)';
-  ctx.lineWidth = 1;
+  // Grounded pieces — fuel image or yellow disc fallback
   for (const p of gamePieces) {
     const { cx, cy } = fieldPt(p.x, p.y, W, H);
-    ctx.beginPath();
-    ctx.arc(cx, cy, rPx, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(245,210,40,0.95)';
-    ctx.fill();
-    ctx.stroke();
+    if (useFuelImg) {
+      ctx.drawImage(fuelImg, cx - half, cy - half, sz, sz);
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, half, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(245,210,40,0.95)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,90,0,0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   }
 
-  // Flying projectiles — smaller, brighter, white-ringed disc
-  const rFly = Math.max(3, mToPx(0.055, W, H));
+  // Flying projectiles — slightly smaller, white-ringed or image at 70% opacity
+  const szFly = Math.max(6, mToPx(0.11, W, H));
+  const halfFly = szFly / 2;
   for (const p of flyingPieces) {
     const { cx, cy } = fieldPt(p.x, p.y, W, H);
-    ctx.beginPath();
-    ctx.arc(cx, cy, rFly, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(255,230,80,1.0)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,200,0.9)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    if (useFuelImg) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.drawImage(fuelImg, cx - halfFly, cy - halfFly, szFly, szFly);
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, halfFly, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(255,230,80,1.0)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,200,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
   }
 }
 
@@ -720,6 +803,8 @@ setInterval(async () => {
 
 // ---- Status bar ----
 function updateStatus(vx, vy, omega) {
+  const dot = document.getElementById('conn-dot');
+  if (dot) dot.classList.toggle('connected', state.connected);
   const el = document.getElementById('status');
   const connEl = state.connected
     ? '<span class="ok">● Connected</span>'

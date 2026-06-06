@@ -170,7 +170,8 @@ out/
 
 # Simulation GUI and other tools window save file
 networktables.json
-simgui.json
+# simgui.json is tracked — it ships the Fuel game-piece image config for Glass.
+# simgui-ds.json and *-window.json remain ignored (session-specific UI state).
 simgui-ds.json
 *-window.json
 

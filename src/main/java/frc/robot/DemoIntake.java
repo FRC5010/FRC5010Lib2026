@@ -1,6 +1,7 @@
 package frc.robot;
 
 import static edu.wpi.first.units.Units.Degrees;
+import static edu.wpi.first.units.Units.Inches;
 import static edu.wpi.first.units.Units.Meters;
 import static edu.wpi.first.units.Units.MetersPerSecond;
 
@@ -12,12 +13,19 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
+import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
+import org.frc5010.common.sim.SimRobotState;
+import swervelib.simulation.ironmaple.simulation.IntakeSimulation;
+import swervelib.simulation.ironmaple.simulation.IntakeSimulation.IntakeSide;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;
-import swervelib.simulation.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
+import swervelib.simulation.ironmaple.simulation.drivesims.AbstractDriveTrainSimulation;
 import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnFly;
 import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltHub;
 
@@ -25,15 +33,24 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * Demo intake and scoring simulation for the 2026 Rebuilt game.
  * Not a real mechanism — for interactive demonstration only.
  *
- * <p>Driven by three {@link BooleanSupplier} inputs so the same demo logic works
- * from any control source — web UI buttons, keyboard/Xbox buttons, or both OR-ed
- * together. {@link #periodic(Pose2d)} edge-detects rising transitions.
+ * <p>Extends {@link SimRobotState}, which owns the {@link IntakeSimulation} instance,
+ * the {@code periodic()} cleanup loop, generic {@code extendCommand()} /
+ * {@code retractCommand()}, and automatic web UI state binding. This class adds
+ * game-specific logic: Fuel piece type and dimensions, ballistic projectile firing,
+ * and hub-scoring callbacks.
+ *
+ * <p>All Fuel pieces (grounded + in-flight) are published each cycle to the
+ * {@code "Fuel"} {@link FieldObject2d} on the provided {@link Field2d} so they
+ * appear in Glass/AdvantageScope. The same positions are served by the web
+ * server's {@code /api/gamepieces} endpoint.
+ *
+ * <p>Controls are exposed as WPILib {@link Command}s so callers bind them to
+ * {@link edu.wpi.first.wpilibj2.command.button.Trigger}s in the standard WPILib pattern:
  *
  * <ul>
- *   <li>{@code extend}  — rising edge latches the intake extended
- *   <li>{@code retract} — rising edge retracts the intake
- *   <li>{@code fire}    — rising edge fires one Fuel; speed and loft angle are
- *                         computed automatically to reach the current target
+ *   <li>{@code extendCommand()} — extends the intake and starts collecting Fuel (from base)
+ *   <li>{@code retractCommand()} — retracts the intake and stops collecting (from base)
+ *   <li>{@link #fireCommand()} — fires one held Fuel piece toward the current target
  * </ul>
  *
  * <p>When inside the alliance zone (X &lt; 3.952 m for Blue, X &gt; 12.589 m for
@@ -41,109 +58,100 @@ import swervelib.simulation.ironmaple.simulation.seasonspecific.rebuilt2026.Rebu
  * zone the shot lobs toward the zone-accumulation centre at 40° so fuel builds
  * up where the robot can collect it later.  In both cases launch speed is
  * computed from the ballistic formula v = √(g·d² / (2·cos²θ·(d·tanθ − Δh))).
- *
- * <p>Must be called from the robot thread (inside the drive default command).
  */
-public class DemoIntake {
+public class DemoIntake extends SimRobotState {
 
   // ---- geometry ----
-  private static final double BUMPER_HALF_M      = Units.inchesToMeters(15);
-  private static final double INTAKE_EXTENSION_M = Units.inchesToMeters(12);
-  /** Distance from robot centre to intake tip while extended (= bumper edge + 12"). */
-  public  static final double INTAKE_REACH_M     = BUMPER_HALF_M + INTAKE_EXTENSION_M;
-  private static final double INTAKE_RADIUS_M    = 0.15;
+  private static final double BUMPER_HALF_M = Units.inchesToMeters(15);
 
   // ---- projectile launch parameters ----
-  private static final double LAUNCH_HEIGHT_M         = 0.4;    // shooter height above ground
-  private static final double HUB_SHOT_ELEVATION_DEG  = 65.0;   // steep arc into elevated hub
-  private static final double ZONE_SHOT_ELEVATION_DEG = 40.0;   // flatter lob toward zone centre
+  private static final double LAUNCH_HEIGHT_M         = 0.4;
+  private static final double HUB_SHOT_ELEVATION_DEG  = 65.0;
+  private static final double ZONE_SHOT_ELEVATION_DEG = 40.0;
   private static final double GRAVITY_MPS2             = 9.80665;
   private static final double MIN_LAUNCH_SPEED_MPS    = 2.0;
   private static final double MAX_LAUNCH_SPEED_MPS    = 20.0;
 
   // ---- hub 3D positions (decoded from RebuiltHub static initialiser) ----
-  // blueHubPose / redHubPose: Translation3d(x, y, 1.5748) — Z = 62" scoring height
   private static final Translation3d BLUE_HUB_3D = new Translation3d(4.5974, 4.034536, 1.5748);
   private static final Translation3d RED_HUB_3D  = new Translation3d(11.938, 4.034536, 1.5748);
 
   // ---- alliance zone boundaries and accumulation targets ----
-  // Zone extends from each alliance wall to X = 3.952 m inward (trench/hub wall line).
   private static final double ZONE_DEPTH_M  = 3.952;
   private static final double FIELD_WIDTH_M = 16.540988;
-  // When out of zone, aim for the centre of the alliance's zone so fuel accumulates there.
-  private static final Translation3d BLUE_ZONE_TARGET = new Translation3d(ZONE_DEPTH_M / 2, 4.035, 0.1);
-  private static final Translation3d RED_ZONE_TARGET  = new Translation3d(FIELD_WIDTH_M - ZONE_DEPTH_M / 2, 4.035, 0.1);
+  private static final Translation3d BLUE_ZONE_TARGET =
+      new Translation3d(ZONE_DEPTH_M / 2, 4.035, 0.1);
+  private static final Translation3d RED_ZONE_TARGET =
+      new Translation3d(FIELD_WIDTH_M - ZONE_DEPTH_M / 2, 4.035, 0.1);
 
-  private final BooleanSupplier extendInput;
-  private final BooleanSupplier retractInput;
-  private final BooleanSupplier fireInput;
-
-  // Volatile so HTTP thread (web /api/state) sees fresh values without locking.
-  private volatile boolean intakeExtended = false;
-  private volatile int heldFuel   = 0;
-  // Scored count written on robot thread (in projectile hit callback), read by HTTP thread.
+  // Written on robot thread (projectile hit callback), read by HTTP thread via getScoredCount().
   private final AtomicInteger scoredFuelCount = new AtomicInteger(0);
-
-  private boolean prevExtend  = false;
-  private boolean prevRetract = false;
-  private boolean prevFire    = false;
-
-  public DemoIntake(BooleanSupplier extend, BooleanSupplier retract, BooleanSupplier fire) {
-    this.extendInput  = extend;
-    this.retractInput = retract;
-    this.fireInput    = fire;
-  }
+  // Nullable — non-null only when Field2d is provided (sim mode with NT publishing).
+  private final FieldObject2d fuelField;
 
   /**
-   * Run once per 20 ms robot cycle (inside the drive default command, while enabled).
-   * @param robotPose current robot pose from the drive subsystem
+   * Creates a demo intake attached to the given IronMaple drive-train simulation.
+   * Web UI state binding happens automatically via {@link org.frc5010.common.sim.WebControl#getInstance()}.
+   *
+   * @param driveSim     physics drive-train (from {@code drive.getDriveTrainSimulation().get()})
+   * @param poseSupplier supplier of the current robot pose (used for projectile launch origin)
+   * @param field2d      the Field2d published to NetworkTables, used to render Fuel pieces in
+   *                     Glass and AdvantageScope; pass {@code null} to skip NT publishing
    */
-  public void periodic(Pose2d robotPose) {
-    boolean extend  = extendInput.getAsBoolean();
-    boolean retract = retractInput.getAsBoolean();
-    boolean fire    = fireInput.getAsBoolean();
-
-    if (extend  && !prevExtend)  intakeExtended = true;
-    if (retract && !prevRetract) intakeExtended = false;
-    if (intakeExtended) collectNearbyFuel(robotPose);
-    if (fire && !prevFire) fireFuel(robotPose);
-
-    prevExtend  = extend;
-    prevRetract = retract;
-    prevFire    = fire;
+  public DemoIntake(
+      AbstractDriveTrainSimulation driveSim,
+      Supplier<Pose2d> poseSupplier,
+      Field2d field2d) {
+    super(
+        IntakeSimulation.OverTheBumperIntake("Fuel", driveSim, Inches.of(24), Inches.of(12), IntakeSide.FRONT, 50),
+        poseSupplier,
+        BUMPER_HALF_M + Units.inchesToMeters(6),
+        field2d != null ? field2d.getObject("Intake") : null);
+    this.fuelField = field2d != null ? field2d.getObject("Fuel") : null;
   }
 
-  /** Current count of Fuel pieces held by the intake. Safe to call from any thread. */
-  public int getHeldFuel()       { return heldFuel; }
-  /** Whether the intake is currently extended. Safe to call from any thread. */
-  public boolean isIntakeExtended() { return intakeExtended; }
-  /** Count of Fuel pieces scored in the hub since startup. Safe to call from any thread. */
-  public int getScoredCount()    { return scoredFuelCount.get(); }
+  @Override
+  public void periodic() {
+    super.periodic();
+    if (fuelField == null) return;
+
+    List<Pose2d> poses = new ArrayList<>();
+    try {
+      for (var piece : SimulatedArena.getInstance().gamePiecesOnField()) {
+        if ("Fuel".equals(piece.getType())) poses.add(piece.getPoseOnField());
+      }
+      for (var proj : SimulatedArena.getInstance().gamePieceLaunched()) {
+        if ("Fuel".equals(proj.getType())) {
+          var p3 = proj.getPose3d();
+          poses.add(new Pose2d(p3.getX(), p3.getY(), p3.getRotation().toRotation2d()));
+        }
+      }
+    } catch (Exception ignored) {}
+    fuelField.setPoses(poses);
+  }
+
+  @Override
+  protected int getScoredCount() { return scoredFuelCount.get(); }
+
+  // ---- public accessors (aliases onto SimRobotState state) ----
+
+  /** Number of Fuel pieces currently held. */
+  public int getHeldFuel()          { return getHeldPieces(); }
+  /** Whether the intake is currently extended. */
+  public boolean isIntakeExtended() { return isExtended(); }
+
+  // ---- game-specific command ----
+
+  /** Fires one held Fuel piece using ballistic physics. No-op if nothing is held. */
+  public Command fireCommand() {
+    return Commands.runOnce(() -> fireFuel(poseSupplier.get()), this).withName("FireFuel");
+  }
 
   // ---- private helpers ----
 
-  private void collectNearbyFuel(Pose2d pose) {
-    double theta = pose.getRotation().getRadians();
-    Translation2d tip = new Translation2d(
-        pose.getX() + INTAKE_REACH_M * Math.cos(theta),
-        pose.getY() + INTAKE_REACH_M * Math.sin(theta));
-
-    SimulatedArena arena = SimulatedArena.getInstance();
-    List<GamePieceOnFieldSimulation> toRemove = new ArrayList<>();
-    for (GamePieceOnFieldSimulation piece : arena.gamePiecesOnField()) {
-      if (!"Fuel".equals(piece.getType())) continue;
-      if (tip.getDistance(piece.getPoseOnField().getTranslation()) < INTAKE_RADIUS_M) {
-        toRemove.add(piece);
-      }
-    }
-    for (GamePieceOnFieldSimulation piece : toRemove) {
-      if (arena.removeGamePiece(piece)) heldFuel++;
-    }
-  }
-
   private void fireFuel(Pose2d pose) {
-    if (heldFuel <= 0) return;
-    heldFuel--;
+    if (intakeSimulation.getGamePiecesAmount() <= 0) return;
+    intakeSimulation.obtainGamePieceFromIntake();
 
     boolean isBlue = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue;
     Translation3d hubTarget = isBlue ? BLUE_HUB_3D : RED_HUB_3D;
@@ -153,7 +161,6 @@ public class DemoIntake {
         ? robotX < ZONE_DEPTH_M
         : robotX > FIELD_WIDTH_M - ZONE_DEPTH_M;
 
-    // Launch from the robot's front bumper edge.
     double theta = pose.getRotation().getRadians();
     Translation2d launchPos = new Translation2d(
         pose.getX() + BUMPER_HALF_M * Math.cos(theta),
@@ -162,10 +169,10 @@ public class DemoIntake {
     Translation3d target3d  = inZone ? hubTarget : (isBlue ? BLUE_ZONE_TARGET : RED_ZONE_TARGET);
     double elevationDeg     = inZone ? HUB_SHOT_ELEVATION_DEG : ZONE_SHOT_ELEVATION_DEG;
 
-    double dx   = target3d.getX() - launchPos.getX();
-    double dy   = target3d.getY() - launchPos.getY();
+    double dx    = target3d.getX() - launchPos.getX();
+    double dy    = target3d.getY() - launchPos.getY();
     double hDist = Math.sqrt(dx * dx + dy * dy);
-    double dz   = target3d.getZ() - LAUNCH_HEIGHT_M;
+    double dz    = target3d.getZ() - LAUNCH_HEIGHT_M;
     double launchSpeedMps = computeLaunchSpeed(hDist, dz, elevationDeg);
 
     RebuiltFuelOnFly projectile = new RebuiltFuelOnFly(
@@ -179,10 +186,27 @@ public class DemoIntake {
 
     if (inZone) {
       final AtomicInteger scored = scoredFuelCount;
+      final Translation3d capturedHub = hubTarget;
       projectile
-          .withTargetPosition(() -> hubTarget)
+          .withTargetPosition(() -> capturedHub)
           .withTargetTolerance(new Translation3d(RebuiltHub.GoalRadius, RebuiltHub.GoalRadius, 0.4))
-          .withHitTargetCallBack(scored::incrementAndGet);
+          .withHitTargetCallBack(() -> {
+            scored.incrementAndGet();
+            // Exit toward field center (common area), with ±30° spread
+            double baseAngle = isBlue ? 0.0 : Math.PI;
+            double exitAngle = baseAngle + (Math.random() - 0.5) * Math.toRadians(60);
+            RebuiltFuelOnFly exitPiece = new RebuiltFuelOnFly(
+                new Translation2d(capturedHub.getX(), capturedHub.getY()),
+                new Translation2d(),
+                new ChassisSpeeds(),
+                new Rotation2d(exitAngle),
+                Meters.of(capturedHub.getZ() / 2.0),
+                MetersPerSecond.of(2.5),
+                Degrees.of(0.0));
+            exitPiece.enableBecomesGamePieceOnFieldAfterTouchGround();
+            exitPiece.launch();
+            SimulatedArena.getInstance().addGamePieceProjectile(exitPiece);
+          });
     }
     projectile.enableBecomesGamePieceOnFieldAfterTouchGround();
     projectile.launch();
@@ -190,12 +214,11 @@ public class DemoIntake {
   }
 
   /**
-   * Returns the launch speed (m/s) required to reach a target at horizontal distance
-   * {@code d} metres and height delta {@code dz} metres, when fired at {@code elevationDeg}.
+   * Returns the launch speed (m/s) to reach a target at horizontal distance {@code d} and
+   * height delta {@code dz}, fired at {@code elevationDeg}.
    * Clamped to [{@link #MIN_LAUNCH_SPEED_MPS}, {@link #MAX_LAUNCH_SPEED_MPS}].
    *
-   * <p>Derivation: d = v·cosθ·t ; dz = v·sinθ·t − ½g·t²
-   * → v² = g·d² / (2·cos²θ·(d·tanθ − dz))
+   * <p>v² = g·d² / (2·cos²θ·(d·tanθ − dz))
    */
   private static double computeLaunchSpeed(double d, double dz, double elevationDeg) {
     double theta = Math.toRadians(elevationDeg);

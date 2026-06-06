@@ -443,6 +443,16 @@ public class AkitSwerveDrive extends SubsystemBase {
   }
 
   /**
+   * Returns the IronMaple physics drive-train simulation, or empty when not in physics-sim mode
+   * ({@code buildWithoutPhysics()}, REAL, or REPLAY). Use this to pass to
+   * {@code IntakeSimulation.OverTheBumperIntake()} or other IronMaple subsystem simulations.
+   */
+  public java.util.Optional<swervelib.simulation.ironmaple.simulation.drivesims.AbstractDriveTrainSimulation>
+      getDriveTrainSimulation() {
+    return java.util.Optional.ofNullable(swerveDriveSimulation);
+  }
+
+  /**
    * Resets the pose estimator to the given pose.
    * Also resets the simulated gyro if running in simulation.
    */
