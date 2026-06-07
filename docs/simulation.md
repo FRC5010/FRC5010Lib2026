@@ -48,6 +48,24 @@ Opt-in browser-based UI on `http://localhost:5800` — field view, virtual gamep
 
 **Running an autonomous routine from the web UI:** pick a routine from the **Auto Routine** dropdown (mirrors the Glass `SendableChooser` registered in `RealRobot`), click **Auto** under **Mode**, then click **Enable**. Like a real Driver Station, the mode applies on the next enable — to switch back, **Disable**, click **Teleop**, then **Enable**. The selector and mode buttons drive `/api/control` (`mode`, `auto` fields) and `/api/autos`; the chosen routine becomes what `RealRobot.getAutonomousCommand()` returns when `autonomousInit()` fires.
 
+#### Keyboard controls
+
+The on-screen sticks and buttons can also be driven from the keyboard (each button shows its key hint). You must **Enable** (Space) before the robot moves in teleop.
+
+| Key(s) | Action |
+|--------|--------|
+| `W` / `S` (or `↑` / `↓`) | Drive forward / backward |
+| `A` / `D` | Strafe left / right |
+| `Q` / `E` (or `←` / `→`) | Rotate left (CCW) / right (CW) |
+| `Space` | Enable / Disable toggle |
+| `Z` | **LB** — extend intake (start collecting Fuel) |
+| `X` | **RB** — retract intake |
+| `F` | **A** — fire one Fuel piece at the Hub |
+| `G` | **Y** — drive-to-Hub (BLine drive-to-pose) |
+| `C` / `V` | **B** / **X** — unbound in the demo (available for your bindings) |
+
+Movement is alliance-aware: "forward" always faces the opponent's wall. The button-key → gamepad-button map lives in `KEY_BUTTON_MAP` in `index.html`; the button → command bindings live in `RealRobot.configureBindings()`.
+
 ---
 
 ## Watching the simulation

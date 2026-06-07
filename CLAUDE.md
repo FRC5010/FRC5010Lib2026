@@ -102,6 +102,12 @@ Two non-obvious WPILib rules govern the web interface's Enable button (`WebDrive
 
 Symptom if either is missing: the web Enable button appears to toggle but the robot never actually enables and never moves.
 
+### 11. Verify web-UI / mechanism / game-piece changes by RUNNING the sim — tests alone miss them
+Several real bugs passed the whole test suite and only surfaced when the sim was actually driven. Before claiming such a change works, run `./gradlew simulateJava -PwebUI`, drive the real flow, and **poll `/api/state` over time** (`heldFuel`, `scoredFuel`, `x`/`y`):
+- **`WebUIFunctionalTest` exercises the backend HTTP API, not the browser JS or the visual telemetry.** A frozen Field2d, a non-firing button handler, or wrong `/api/state` numbers will not fail it. (Example: `poseBuf` was only written inside the drive *default* command, so the web field froze for the entire duration of any auto — every test still passed.)
+- **Web telemetry (`poseBuf`, demo-state suppliers) must update in ALL robot states.** Anything that reads the drive subsystem only via the default command goes stale whenever an auto/other command owns `drive`. Put per-cycle web snapshots in the always-running `applyPendingControl()` (the `WebControlApply` command requires no subsystems and `ignoringDisable(true)`).
+- **Game-piece autos must be routed against the ACTUAL spawn positions in `GamePieceSpawner` (center grid x 7.43–9.11), not assumptions.** pickupAndScore originally stopped at x=6.0 and collected nothing because the Fuel grid starts at x=7.43. When asserting "it collects," require collection *beyond* any preload (`maxHeld > preload`), or the `DemoIntake` 8-piece preload masks a robot that grabbed nothing.
+
 ---
 
 ## Key file locations
