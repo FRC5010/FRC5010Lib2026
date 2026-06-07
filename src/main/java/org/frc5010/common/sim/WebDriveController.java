@@ -133,6 +133,14 @@ public class WebDriveController {
      * @param resetPose called when alliance changes to re-anchor the start pose
      */
     public void applyPendingControl(Runnable resetPose) {
+        // Snapshot the pose every cycle so the web field keeps updating in ALL robot states.
+        // This command (WebControlApply) requires no subsystems and ignoresDisable, so unlike
+        // the drive default command — the other writer of poseBuf — it is never suspended when
+        // an autonomous (or any other) command owns the drive subsystem. Without this, the web
+        // field freezes for the whole duration of an auto routine.
+        Pose2d pose = drive.getPose();
+        poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians()});
+
         if (controlPending.compareAndSet(true, false)) {
             String alliance = pendingAlliance.getAndSet(null);
             if (alliance != null) {
@@ -174,12 +182,10 @@ public class WebDriveController {
 
     /**
      * Returns the current web-commanded chassis speeds, scaled to real m/s and rad/s.
-     * Also snapshots the current pose into {@code poseBuf} for the state endpoint.
-     * Must be called from the robot thread.
+     * Must be called from the robot thread. (The pose snapshot for {@code /api/state} is
+     * taken every cycle in {@link #applyPendingControl}, not here.)
      */
     public ChassisSpeeds getChassisSpeeds() {
-        Pose2d pose = drive.getPose();
-        poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians()});
         double[] cmd = commandBuf.get();
         return new ChassisSpeeds(
             cmd[0] * maxLinearMps,
