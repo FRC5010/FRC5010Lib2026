@@ -150,6 +150,11 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
    * out), capturing one {@link Sample} per cycle in which BLine's FollowPath actually executed.
    */
   private List<Sample> runAndCapture(Command command, int maxCycles) {
+    return runAndCapture(command, maxCycles, () -> {});
+  }
+
+  /** As {@link #runAndCapture(Command, int)}, calling {@code onCycle} after each physics step. */
+  private List<Sample> runAndCapture(Command command, int maxCycles, Runnable onCycle) {
     List<Sample> samples = new ArrayList<>();
     enableAuto();
     CommandScheduler.getInstance().schedule(command);
@@ -173,6 +178,7 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
                 poses.getOrDefault("FollowPath/closestPoint", Pose2d.kZero)));
       }
       step();
+      onCycle.run();
       t += LOOP_PERIOD_SECS;
       cycles++;
     }
@@ -353,14 +359,14 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
    * verifies the robot rounds the Blue Hub to reach the pickup point and returns to the shot
    * spot.
    *
-   * <p>This is the regression guard for the Hub-collision fix: the original straight-centerline
-   * path drove the robot into the Hub at (4.5974, 4.0345) and stalled ~1 m short of the pickup;
-   * the routed path skirts the Hub through the lane below it. We assert the robot got past the
-   * Hub (reached x ≥ 5.5, i.e. the far side) and finished at the shot spot ready to fire. We do
-   * not assert on fuel collection, which is a non-deterministic arena/intake concern.
+   * <p>This is the regression guard for both the Hub-collision fix and the fuel pickup: the
+   * routed path skirts the Hub (at (4.5974, 4.0345)) through the lane below it and then drives
+   * into the center-field Fuel grid (x ≥ 7.43) with the intake extended. We assert the robot
+   * reached the grid (x ≥ 8.5), actually collected Fuel along the way (max held &gt; 0), and
+   * returned to the alliance-zone shot spot.
    */
   @Test
-  void pickupAndScore_realRoutine_roundsHubReachesPickupAndReturns() {
+  void pickupAndScore_realRoutine_collectsFuelAndReturns() {
     DemoIntake intake =
         new DemoIntake(
             drive.getDriveTrainSimulation().orElseThrow(
@@ -369,7 +375,12 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
             drive.getField2d());
 
     Translation2d shotSpot = new Translation2d(2.80, 4.03);
-    List<Sample> samples = runAndCapture(AutoRoutines.pickupAndScore(drive, intake), 1000);
+    int[] maxHeld = {0};
+    List<Sample> samples =
+        runAndCapture(
+            AutoRoutines.pickupAndScore(drive, intake),
+            1200,
+            () -> maxHeld[0] = Math.max(maxHeld[0], intake.getHeldFuel()));
     writeCsv("pickupAndScore", samples, List.of(new Translation2d(1.5, 4.03), shotSpot));
 
     double maxX = Double.NEGATIVE_INFINITY;
@@ -378,13 +389,15 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
     double endDist = finalPose.getTranslation().getDistance(shotSpot);
     String diag =
         String.format(
-            "pickupAndScore: samples=%d reachedX=%.3f endDist(toShotSpot)=%.3fm finalPose=%s heldFuel=%d",
-            samples.size(), maxX, endDist, finalPose, intake.getHeldFuel());
+            "pickupAndScore: samples=%d reachedX=%.3f maxHeldFuel=%d endDist(toShotSpot)=%.3fm "
+                + "finalPose=%s endHeldFuel=%d",
+            samples.size(), maxX, maxHeld[0], endDist, finalPose, intake.getHeldFuel());
     System.out.println("[AutoRoutinesSimPhysicsTest] " + diag);
 
-    // Reaching the far side of the Hub (x ≥ 5.5) proves the routed path cleared the obstacle the
-    // original straight path stalled on (~x=3.6).
-    assertTrue(maxX > 5.5, "robot did not get past the Hub to the pickup point — " + diag);
+    // Reaching the center-field Fuel grid (x ≥ 8.5; grid starts at x=7.43) proves the routed
+    // path cleared the Hub the original straight path stalled on (~x=3.6).
+    assertTrue(maxX > 8.5, "robot did not drive into the center-field Fuel grid — " + diag);
+    assertTrue(maxHeld[0] > 0, "robot drove through the Fuel grid but collected nothing — " + diag);
     assertTrue(endDist < END_TRANSLATION_TOL_M, "robot did not return to the shot spot — " + diag);
   }
 

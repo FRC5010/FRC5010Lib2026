@@ -62,17 +62,18 @@ public final class AutoRoutines {
     FollowPath.Builder b = BLineSwerveAuto.builder(drive);
 
     Pose2d start = new Pose2d(1.50, 4.03, Rotation2d.fromDegrees(0));
-    Pose2d pickup = new Pose2d(6.00, 4.03, Rotation2d.fromDegrees(0));
+    Pose2d pickup = new Pose2d(9.30, 2.76, Rotation2d.fromDegrees(0));
     Pose2d shotSpot = new Pose2d(2.80, 4.03, Rotation2d.fromDegrees(0));
 
-    // The Blue Hub sits on the field centerline at (4.5974, 4.0345) and is a physical obstacle:
-    // a straight (1.5 → 6.0) path at y=4.03 drives the robot into it and stalls. Both the
-    // outbound and return paths therefore skirt the Hub through the clear lane below it (y≈2.5)
-    // via hand-authored TranslationTarget via-points (see BLineSwerveAuto#driveToVia).
+    // The center-field Fuel sits in a 5-col × 6-row grid (x 7.43–9.11, rows at y = 1.91, 2.76,
+    // 3.61, …; see GamePieceSpawner) — past the Blue Hub, which is a physical obstacle on the
+    // field centerline at (4.5974, 4.0345). Skirt the Hub through the clear lane below it
+    // (y≈2.5), then drive +X straight through the y=2.76 Fuel row with the front intake extended
+    // so it collects the row. Return the same lane to the alliance-zone shot spot and fire.
     Path outbound = new Path(
         new Path.Waypoint(start.getTranslation(), start.getRotation()),
         new Path.TranslationTarget(new Translation2d(3.0, 2.5)),
-        new Path.TranslationTarget(new Translation2d(5.5, 2.5)),
+        new Path.TranslationTarget(new Translation2d(6.5, 2.76)),
         new Path.Waypoint(pickup.getTranslation(), pickup.getRotation()));
 
     Path returnPath = new Path(
@@ -88,7 +89,10 @@ public final class AutoRoutines {
         Commands.waitUntil(() -> intake.getHeldFuel() > 0).withTimeout(2.0),
         intake.retractCommand(),
         b.build(returnPath),
-        intake.fireCommand(),
+        // Fire every collected Fuel piece at the Hub — one ballistic shot per piece.
+        Commands.repeatingSequence(intake.fireCommand(), Commands.waitSeconds(0.25))
+            .until(() -> intake.getHeldFuel() == 0)
+            .withTimeout(6.0),
         Commands.runOnce(drive::stop, drive));
   }
 

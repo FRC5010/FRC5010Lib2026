@@ -68,15 +68,23 @@ shows the recommended composition pattern:
 return Commands.sequence(
     Commands.runOnce(() -> drive.setPose(start), drive),
     Commands.waitSeconds(0.05),                            // setPose needs one cycle to read back
-    Commands.parallel(b.build(outbound), intake.extendCommand()),
+    Commands.parallel(b.build(outbound), intake.extendCommand()),  // drive through the Fuel grid
     Commands.waitUntil(() -> intake.getHeldFuel() > 0).withTimeout(2.0),
     intake.retractCommand(),
     b.build(returnPath),
-    intake.fireCommand(),
+    // Fire every collected piece at the Hub — one ballistic shot per piece.
+    Commands.repeatingSequence(intake.fireCommand(), Commands.waitSeconds(0.25))
+        .until(() -> intake.getHeldFuel() == 0).withTimeout(6.0),
     Commands.runOnce(drive::stop, drive));
 ```
 
 - `Commands.parallel(path, extend)` lets the intake state machine run while the path drives.
+  The `outbound` path routes **through the center-field Fuel grid** (x 7.43–9.11, see
+  `GamePieceSpawner`) so the extended front intake collects a row of Fuel — and it skirts the
+  Hub obstacle on the way out via the lane below it (y≈2.5).
+- `intake.fireCommand()` fires a single piece, so the `repeatingSequence(...).until(held == 0)`
+  empties the magazine — one ballistic Hub shot per collected piece — from inside the alliance
+  scoring zone.
 - `waitUntil` gated by `withTimeout` keeps the auto from hanging if no Fuel is on the path.
 - All poses are Blue-side; BLine's `.withDefaultShouldFlip()` mirrors for Red.
 - The `Commands.waitSeconds(0.05)` after `setPose` is gotcha #6 in CLAUDE.md — the pose
