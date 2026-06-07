@@ -375,7 +375,8 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
             drive.getField2d());
 
     Translation2d shotSpot = new Translation2d(2.80, 4.03);
-    int[] maxHeld = {0};
+    int preload = intake.getHeldFuel();  // DemoIntake starts the match preloaded
+    int[] maxHeld = {preload};
     List<Sample> samples =
         runAndCapture(
             AutoRoutines.pickupAndScore(drive, intake),
@@ -389,15 +390,18 @@ class AutoRoutinesSimPhysicsTest extends SimTestBase {
     double endDist = finalPose.getTranslation().getDistance(shotSpot);
     String diag =
         String.format(
-            "pickupAndScore: samples=%d reachedX=%.3f maxHeldFuel=%d endDist(toShotSpot)=%.3fm "
-                + "finalPose=%s endHeldFuel=%d",
-            samples.size(), maxX, maxHeld[0], endDist, finalPose, intake.getHeldFuel());
+            "pickupAndScore: samples=%d reachedX=%.3f preload=%d maxHeldFuel=%d "
+                + "endDist(toShotSpot)=%.3fm finalPose=%s endHeldFuel=%d",
+            samples.size(), maxX, preload, maxHeld[0], endDist, finalPose, intake.getHeldFuel());
     System.out.println("[AutoRoutinesSimPhysicsTest] " + diag);
 
+    // The robot starts the match preloaded with Fuel.
+    assertTrue(preload == 8, "DemoIntake should start preloaded with 8 Fuel — " + diag);
     // Reaching the center-field Fuel grid (x ≥ 8.5; grid starts at x=7.43) proves the routed
     // path cleared the Hub the original straight path stalled on (~x=3.6).
     assertTrue(maxX > 8.5, "robot did not drive into the center-field Fuel grid — " + diag);
-    assertTrue(maxHeld[0] > 0, "robot drove through the Fuel grid but collected nothing — " + diag);
+    // More Fuel held than the preload proves the run actually collected from the grid.
+    assertTrue(maxHeld[0] > preload, "robot drove through the Fuel grid but collected nothing — " + diag);
     assertTrue(endDist < END_TRANSLATION_TOL_M, "robot did not return to the shot spot — " + diag);
   }
 
