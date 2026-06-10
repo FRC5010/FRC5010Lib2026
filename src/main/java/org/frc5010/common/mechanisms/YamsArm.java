@@ -1,0 +1,224 @@
+package org.frc5010.common.mechanisms;
+
+import static edu.wpi.first.units.Units.Amps;
+import static edu.wpi.first.units.Units.Degrees;
+import static edu.wpi.first.units.Units.DegreesPerSecond;
+import static edu.wpi.first.units.Units.DegreesPerSecondPerSecond;
+import static edu.wpi.first.units.Units.KilogramSquareMeters;
+import static edu.wpi.first.units.Units.Kilograms;
+import static edu.wpi.first.units.Units.Meters;
+import static edu.wpi.first.units.Units.Radians;
+import static edu.wpi.first.units.Units.RadiansPerSecond;
+import static edu.wpi.first.units.Units.Rotations;
+import static edu.wpi.first.units.Units.RotationsPerSecond;
+import static edu.wpi.first.units.Units.Second;
+import static edu.wpi.first.units.Units.Seconds;
+import static edu.wpi.first.units.Units.Volts;
+
+import edu.wpi.first.math.controller.ArmFeedforward;
+import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.units.measure.Angle;
+import edu.wpi.first.units.measure.AngularAcceleration;
+import edu.wpi.first.units.measure.AngularVelocity;
+import edu.wpi.first.units.measure.Current;
+import edu.wpi.first.units.measure.Distance;
+import edu.wpi.first.units.measure.Mass;
+import edu.wpi.first.units.measure.Voltage;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import edu.wpi.first.wpilibj2.command.button.Trigger;
+import yams.gearing.GearBox;
+import yams.gearing.MechanismGearing;
+import yams.math.LQRConfig;
+import yams.math.LQRController;
+import yams.mechanisms.config.ArmConfig;
+import yams.mechanisms.positional.Arm;
+import yams.motorcontrollers.SmartMotorController;
+import yams.motorcontrollers.SmartMotorControllerConfig;
+import yams.motorcontrollers.SmartMotorControllerConfig.ControlMode;
+import yams.motorcontrollers.SmartMotorControllerConfig.MotorMode;
+import yams.motorcontrollers.SmartMotorControllerConfig.TelemetryVerbosity;
+
+/**
+ * LQR-controlled single-jointed arm built on the YAMS {@link Arm} mechanism.
+ *
+ * <p>Common (robot-agnostic) wrapper — robot-specific values live in {@link Settings}
+ * (see {@code frc.robot.mechanisms.ExampleArm}).
+ *
+ * <p><b>Controller:</b> ARM-type LQR (single-jointed-arm plant from motor model, gearing
+ * and MOI = ⅓·m·L², matching the YAMS arm simulation) with a trapezoidal motion profile.
+ * The linearized plant has no gravity term, so an {@link ArmFeedforward} kG·cos(θ)
+ * compensates it; LQR has no integrator to absorb the residual.
+ * Note: YAMS only applies the arm feedforward when a motion profile is configured —
+ * keep the trapezoid profile.
+ *
+ * <p><b>Tuning:</b> qelms/relms live-tunable under {@code /Tuning/<name>/}
+ * ({@link LqrTunables}); angular weights are in rotations and rotations/s.
+ */
+public class YamsArm extends SubsystemBase {
+
+  /** Robot-specific arm parameters. */
+  public static class Settings {
+    /** Mechanism name used for telemetry and tuning tables. */
+    public String name = "Arm";
+    /** Motor controller vendor. */
+    public MechanismMotor.Vendor vendor = MechanismMotor.Vendor.TALON_FX;
+    /** CAN ID of the motor controller. */
+    public int canId;
+    /** Motor physics model. */
+    public DCMotor motorModel = DCMotor.getKrakenX60(1);
+    /** Gear reduction stages, rotor → mechanism (e.g. {10, 5} = 50:1). */
+    public double[] gearReductionStages = {10, 5};
+    /** Arm length, pivot to tip. */
+    public Distance length = Meters.of(0.6);
+    /** Arm mass (assumed uniform rod for MOI = ⅓·m·L²). */
+    public Mass mass = Kilograms.of(4.0);
+    /** Lower hard limit (0° = horizontal). */
+    public Angle minAngle = Degrees.of(-30);
+    /** Upper hard limit. */
+    public Angle maxAngle = Degrees.of(210);
+    /** Arm angle at robot power-on. */
+    public Angle startingAngle = Degrees.of(0);
+    /** Motion profile cruise velocity. */
+    public AngularVelocity maxVelocity = DegreesPerSecond.of(180);
+    /** Motion profile acceleration. */
+    public AngularAcceleration maxAcceleration = DegreesPerSecondPerSecond.of(360);
+    /** Gravity feedforward (volts to hold the arm horizontal) — from SysId or sim ramp. */
+    public Voltage kG = Volts.of(0);
+    /** Stator current limit. */
+    public Current statorCurrentLimit = Amps.of(40);
+
+    // --- LQR weights (live-tunable; these are the initial values) ---
+    /** Position error tolerance. Smaller = more aggressive. */
+    public Angle qelmsPosition = Degrees.of(1.5);
+    /** Velocity error tolerance. Smaller = more aggressive. */
+    public AngularVelocity qelmsVelocity = DegreesPerSecond.of(20);
+    /** Control effort tolerance. Smaller = gentler. 12 V = full battery. */
+    public Voltage relms = Volts.of(12);
+
+    // --- Kalman filter trust (rarely changed) ---
+    /** Model position standard deviation. */
+    public Angle modelPositionTrust = Radians.of(0.015);
+    /** Model velocity standard deviation. */
+    public AngularVelocity modelVelocityTrust = RadiansPerSecond.of(0.17);
+    /** Encoder position standard deviation. */
+    public Angle encoderPositionTrust = Radians.of(0.001);
+  }
+
+  private final Settings settings;
+  private final MechanismGearing gearing;
+  private final LQRController lqr;
+  private final SmartMotorControllerConfig motorConfig;
+  private final SmartMotorController motor;
+  private final Arm arm;
+  private final LqrTunables tunables;
+
+  /**
+   * Builds the arm subsystem, motor wrapper, LQR controller, and simulation.
+   *
+   * @param settings robot-specific arm parameters
+   */
+  public YamsArm(Settings settings) {
+    this.settings = settings;
+    setName(settings.name);
+    gearing = new MechanismGearing(GearBox.fromReductionStages(settings.gearReductionStages));
+    lqr = new LQRController(buildLqrConfig(
+        settings.qelmsPosition.in(Rotations),
+        settings.qelmsVelocity.in(RotationsPerSecond),
+        settings.relms.in(Volts)));
+    motorConfig = new SmartMotorControllerConfig(this)
+        .withGearing(gearing)
+        .withSoftLimit(settings.minAngle, settings.maxAngle)
+        .withIdleMode(MotorMode.BRAKE)
+        .withStatorCurrentLimit(settings.statorCurrentLimit)
+        .withTelemetry(settings.name + "Motor", TelemetryVerbosity.HIGH)
+        // kG·cos(θ) gravity compensation; only applied when a motion profile is present.
+        .withFeedforward(new ArmFeedforward(0, settings.kG.in(Volts), 0))
+        .withTrapezoidalProfile(settings.maxVelocity, settings.maxAcceleration)
+        .withControlMode(ControlMode.CLOSED_LOOP)
+        // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
+        .withClosedLoopController(lqr);
+    motor = MechanismMotor.create(settings.vendor, settings.canId, settings.motorModel, motorConfig);
+    arm = new Arm(new ArmConfig(motor)
+        .withLength(settings.length)
+        .withMass(settings.mass)
+        .withHardLimit(settings.minAngle, settings.maxAngle)
+        .withStartingPosition(settings.startingAngle)
+        .withTelemetry(settings.name, TelemetryVerbosity.HIGH));
+    tunables = new LqrTunables(settings.name,
+        settings.qelmsPosition.in(Rotations),
+        settings.qelmsVelocity.in(RotationsPerSecond),
+        settings.relms.in(Volts));
+  }
+
+  private LQRConfig buildLqrConfig(double qelmsPosRot, double qelmsVelRps, double relmsVolts) {
+    // Uniform-rod MOI, identical to SingleJointedArmSim.estimateMOI used by the YAMS sim.
+    double moi = settings.mass.in(Kilograms) * Math.pow(settings.length.in(Meters), 2) / 3.0;
+    return MechanismLqrConfig.arm(
+        settings.motorModel,
+        gearing,
+        KilogramSquareMeters.of(moi),
+        Rotations.of(qelmsPosRot),
+        RotationsPerSecond.of(qelmsVelRps),
+        settings.modelPositionTrust,
+        settings.modelVelocityTrust,
+        settings.encoderPositionTrust,
+        Volts.of(relmsVolts));
+  }
+
+  @Override
+  public void periodic() {
+    if (tunables.hasChanged()) {
+      lqr.updateConfig(buildLqrConfig(
+          tunables.qelmsPosition(), tunables.qelmsVelocity(), tunables.relms()));
+      motor.startClosedLoopController();
+    }
+    arm.updateTelemetry();
+  }
+
+  @Override
+  public void simulationPeriodic() {
+    arm.simIterate();
+  }
+
+  /** Command: drive the arm to the given angle (profiled LQR). Never finishes. */
+  public Command goToAngle(Angle angle) {
+    return arm.setAngle(angle);
+  }
+
+  /** Command: open-loop duty cycle (e.g. for manual jog). */
+  public Command setDutyCycle(double dutyCycle) {
+    return arm.set(dutyCycle);
+  }
+
+  /** Command: SysId routine for characterizing kG/kS/kV on a real robot. */
+  public Command sysId() {
+    return arm.sysId(Volts.of(3), Volts.of(1).per(Second), Seconds.of(10));
+  }
+
+  /** Current arm angle. */
+  public Angle getAngle() {
+    return arm.getAngle();
+  }
+
+  /** Trigger: true while the arm is within {@code tolerance} of {@code angle}. */
+  public Trigger isAtAngle(Angle angle, Angle tolerance) {
+    return arm.isNear(angle, tolerance);
+  }
+
+  /** Underlying YAMS mechanism, for advanced use. */
+  public Arm getMechanism() {
+    return arm;
+  }
+
+  /** Underlying YAMS motor wrapper, for advanced use. */
+  public SmartMotorController getMotor() {
+    return motor;
+  }
+
+  /** Stops the closed-loop Notifier and frees the CAN device. For unit tests. */
+  public void close() {
+    motor.close();
+    MechanismMotor.closeDevice(motor);
+  }
+}
