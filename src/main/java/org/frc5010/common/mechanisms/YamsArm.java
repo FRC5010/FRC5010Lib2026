@@ -120,6 +120,20 @@ public class YamsArm extends SubsystemBase {
     public AngularVelocity modelVelocityTrust = RadiansPerSecond.of(0.17);
     /** Encoder position standard deviation. */
     public Angle encoderPositionTrust = Radians.of(0.001);
+
+    // --- Characterized plant (optional, LQR style — see docs/mechanisms.md) ---
+    /**
+     * Measured kV from a SysId run, volts per rotation/s (SysId tool set to Rotations).
+     * Leave 0 to use the physics-model plant. When both kV and kA are set, the LQR
+     * plant is built from these measured values instead of motor + gearing +
+     * {@link #mass}/{@link #length} — the real inertia and losses are implied by how
+     * the arm actually responded to voltage, so an unknown mass no longer matters to
+     * the controller. (kG still comes from SysId separately — gravity is not part of
+     * the linear plant.)
+     */
+    public double characterizedKv = 0;
+    /** Measured kA from a SysId run, volts per rotation/s². See {@link #characterizedKv}. */
+    public double characterizedKa = 0;
   }
 
   /**
@@ -207,15 +221,19 @@ public class YamsArm extends SubsystemBase {
     // Uniform-rod MOI, identical to SingleJointedArmSim.estimateMOI used by the YAMS sim.
     double moi = settings.mass.in(Kilograms) * Math.pow(settings.length.in(Meters), 2) / 3.0;
     return MechanismLqrConfig.arm(
-        settings.motorModel,
-        gearing,
-        KilogramSquareMeters.of(moi),
-        Rotations.of(qelmsPosRot),
-        RotationsPerSecond.of(qelmsVelRps),
-        settings.modelPositionTrust,
-        settings.modelVelocityTrust,
-        settings.encoderPositionTrust,
-        Volts.of(relmsVolts));
+            settings.motorModel,
+            gearing,
+            KilogramSquareMeters.of(moi),
+            Rotations.of(qelmsPosRot),
+            RotationsPerSecond.of(qelmsVelRps),
+            settings.modelPositionTrust,
+            settings.modelVelocityTrust,
+            settings.encoderPositionTrust,
+            Volts.of(relmsVolts))
+        // Settings take SysId's rotation units; the arm plant works in radians.
+        .withCharacterizedGains(
+            settings.characterizedKv / (2 * Math.PI),
+            settings.characterizedKa / (2 * Math.PI));
   }
 
   private void updateInputs() {

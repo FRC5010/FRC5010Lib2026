@@ -109,6 +109,55 @@ LQR supports exactly three plants — **ELEVATOR**, **ARM** (also used for pivot
 systems the LQR types don't model, so those wrappers use profiled PID with
 `TunableGains` (`/Tuning/<name>/<joint>_k*`).
 
+## Characterized plants — when you can't (or shouldn't) trust mass/MOI
+
+**The problem:** an LQR computes its gains from a model of the mechanism (the
+"plant"). By default that plant is built on paper: motor datasheet + gearing +
+mass/MOI. But carriage mass is hard to measure, CAD always misses something, and the
+paper model assumes a lossless gearbox. A wrong plant means the regulator confidently
+computes the *optimal gains for a mechanism you don't have*.
+
+**The insight students should internalize:** the controller never needed mass — it
+needs to know *how the mechanism responds to voltage*. Mass is just one way to predict
+that. A SysId test **measures** it instead, as two numbers:
+
+| Value | Physical meaning | Question it answers |
+|---|---|---|
+| **kV** | volts per unit velocity | "how much voltage to hold a steady speed?" |
+| **kA** | volts per unit acceleration | "how much *extra* voltage to speed up?" |
+
+kA is where the mass/inertia "lives": a heavier carriage needs more voltage to
+accelerate, so it shows up as a bigger kA. Friction and gear losses show up too —
+things no spreadsheet model includes. Set `characterizedKv`/`characterizedKa` in the
+settings and the wrapper builds the LQR plant with WPILib's
+`LinearSystemId.identifyPositionSystem` (or `identifyVelocitySystem` for flywheels)
+instead of the mass-based model. See `ExampleCharacterizedElevator` (CAN 35) for a
+fully-commented walkthrough; the functional test
+`characterizedPlantElevatorConverges` proves the path works end to end.
+
+**Procedure:**
+1. Run the wrapper's `sysId()` command on the real mechanism (tethered, clear travel).
+2. Open the log in the WPILib SysId tool. Units: **meters** for elevators,
+   **rotations** for arms/pivots/flywheels (the settings expect those units; the
+   wrapper converts to the plant's radians internally).
+3. Copy kV and kA into `characterizedKv` / `characterizedKa`. Keep kG from the same
+   run — gravity is a constant force, not part of the linear plant, so it stays a
+   feedforward either way.
+4. Sanity-check kV: theory says kV = 12 V ÷ free speed (motor free speed ÷ gearing ×
+   circumference). Measured kV slightly *higher* than theory = normal losses; much
+   higher = a mechanical problem worth finding; *lower* = wrong units or gearing.
+
+**Backing out the physical value** (optional — for the settings file or a CAD
+cross-check) from kA, the motor constants (kT = stall torque ÷ stall current,
+R = 12 V ÷ stall current), and gearing G:
+
+- Elevator: `m = kA · G · kT / (R · r_drum)`  (kA in V/(m/s²))
+- Arm / pivot / flywheel: `J = kA · G · kT / R`  (kA in V/(rad/s²))
+
+In simulation the mechanism is lossless, so theoretical and "measured" values match —
+the educational payoff comes on the real robot, where the difference between them *is*
+the model error the characterized plant eliminates.
+
 ## Gotchas (hard-won)
 
 1. **YAMS 2026.4.10.3 ships a broken Kalman filter for ARM/ELEVATOR LQR.**
@@ -191,7 +240,8 @@ the normal `./gradlew test` suite.
 1. Copy an example, set real CAN IDs / gearing / masses / limits.
 2. Verify in sim (`./gradlew test`, or `simulateJava` and watch the Mechanism2d widget
    under SmartDashboard → `<name>/mechanism`).
-3. On the robot: run `sysId()` to characterize kG (and kS/kV for reference), update
-   the settings.
+3. On the robot: run `sysId()` to characterize kG, kV, and kA; set `kG` and (for LQR
+   style) `characterizedKv`/`characterizedKa` so the plant matches the real mechanism
+   (see "Characterized plants" above).
 4. Tune qelms/relms live over NT (`/tune-mechanism`), then bake the final values into
    the settings.

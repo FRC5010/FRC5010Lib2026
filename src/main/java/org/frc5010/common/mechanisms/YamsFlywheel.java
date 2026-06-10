@@ -99,6 +99,19 @@ public class YamsFlywheel extends SubsystemBase {
     /** Encoder velocity standard deviation. */
     public AngularVelocity encoderVelocityTrust = RadiansPerSecond.of(0.01);
 
+    // --- Characterized plant (optional, LQR style — see docs/mechanisms.md) ---
+    /**
+     * Measured kV from a SysId run, volts per rotation/s (SysId tool set to Rotations).
+     * Leave 0 to use the physics-model plant. When both kV and kA are set, the LQR
+     * plant is built from these measured values instead of motor + gearing +
+     * {@link #mass}/{@link #diameter} — the real inertia and losses are implied by how
+     * the wheel actually responded to voltage, so an unknown MOI no longer matters to
+     * the controller.
+     */
+    public double characterizedKv = 0;
+    /** Measured kA from a SysId run, volts per rotation/s². See {@link #characterizedKv}. */
+    public double characterizedKa = 0;
+
     /** Stator current limit. */
     public Current statorCurrentLimit = Amps.of(60);
   }
@@ -180,13 +193,17 @@ public class YamsFlywheel extends SubsystemBase {
     // so the LQR plant matches the simulated plant exactly.
     double moi = settings.mass.in(Kilograms) * Math.pow(settings.diameter.in(Meters), 2) / 3.0;
     return MechanismLqrConfig.flywheel(
-        settings.motorModel,
-        gearing,
-        KilogramSquareMeters.of(moi),
-        RotationsPerSecond.of(qelmsVelRps),
-        settings.modelVelocityTrust,
-        settings.encoderVelocityTrust,
-        Volts.of(relmsVolts));
+            settings.motorModel,
+            gearing,
+            KilogramSquareMeters.of(moi),
+            RotationsPerSecond.of(qelmsVelRps),
+            settings.modelVelocityTrust,
+            settings.encoderVelocityTrust,
+            Volts.of(relmsVolts))
+        // Settings take SysId's rotation units; the flywheel plant works in radians.
+        .withCharacterizedGains(
+            settings.characterizedKv / (2 * Math.PI),
+            settings.characterizedKa / (2 * Math.PI));
   }
 
   private void updateInputs() {

@@ -39,13 +39,24 @@ Procedure (sim: `./gradlew simulateJava`; real robot: tethered, mechanism clear)
 ### Plant accuracy beats weight tuning
 The LQR is only as good as its model. If behavior is wildly off, re-check settings:
 gearing stages, carriage mass / arm length+mass / MOI, drum circumference. A 2x mass
-error degrades control more than any weight change can fix.
+error degrades control more than any weight change can fix. If the mass/MOI can't be
+measured (or you've checked everything and it's still off), characterize the plant
+from a SysId run instead — see the next section; the measured kV/kA make mass
+irrelevant to the controller.
 
-### kG characterization (real robot)
+### SysId characterization (real robot) — kG AND the plant itself
 1. Run the wrapper's `sysId()` command (quasistatic+dynamic, logs via WPILib SysId).
-2. Load the log in the SysId tool → read kG (elevator) or kG of `ArmFeedforward`.
-3. Set `settings.kG`. (kS/kV are informational — the LQR loop provides
-   plant-inversion feedforward itself; do NOT add a kV feedforward on top.)
+2. Load the log in the SysId tool (units: meters for elevators, rotations otherwise)
+   → read kG, kV, kA.
+3. Set `settings.kG` (gravity stays a feedforward — it's not part of the linear plant).
+4. **Set `settings.characterizedKv` / `characterizedKa`** — this replaces the
+   mass/MOI-based LQR plant with one identified from the real mechanism's measured
+   response, capturing friction, gear losses, and the true inertia. This is the answer
+   to "we don't know the carriage mass": you don't need it — kA implies it
+   (`m = kA·G·kT/(R·r)`, `J = kA·G·kT/R`). Full explanation + sanity checks in
+   docs/mechanisms.md → "Characterized plants".
+   (Do NOT also add kV as a feedforward in LQR style — the loop provides
+   plant-inversion feedforward itself.)
 
 ### Profile limits
 `maxVelocity` must stay below free speed ÷ gearing × circumference (or the rotational

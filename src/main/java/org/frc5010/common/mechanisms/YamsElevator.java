@@ -129,6 +129,18 @@ public class YamsElevator extends SubsystemBase {
     public LinearVelocity modelVelocityTrust = MetersPerSecond.of(0.5);
     /** Encoder position standard deviation — how much you trust the sensor. */
     public Distance encoderPositionTrust = Meters.of(0.001);
+
+    // --- Characterized plant (optional, LQR style — see docs/mechanisms.md) ---
+    /**
+     * Measured kV from a SysId run, volts per m/s. Leave 0 to use the physics-model
+     * plant. When both kV and kA are set, the LQR plant is built from these measured
+     * values instead of motor + gearing + {@link #carriageMass} — the real mass and
+     * losses are implied by how the mechanism actually responded to voltage, so an
+     * unknown or wrong carriage mass no longer matters to the controller.
+     */
+    public double characterizedKv = 0;
+    /** Measured kA from a SysId run, volts per m/s². See {@link #characterizedKv}. */
+    public double characterizedKa = 0;
   }
 
   /**
@@ -217,17 +229,19 @@ public class YamsElevator extends SubsystemBase {
   private LQRConfig buildLqrConfig(double qelmsPosMeters, double qelmsVelMps, double relmsVolts) {
     // MOI is required by the LQRConfig constructor but unused for the ELEVATOR plant.
     return MechanismLqrConfig.elevator(
-        settings.motorModel,
-        gearing,
-        KilogramSquareMeters.of(0.001),
-        Meters.of(qelmsPosMeters),
-        MetersPerSecond.of(qelmsVelMps),
-        settings.modelPositionTrust,
-        settings.modelVelocityTrust,
-        settings.encoderPositionTrust,
-        settings.carriageMass,
-        settings.drumCircumference.div(2 * Math.PI),
-        Volts.of(relmsVolts));
+            settings.motorModel,
+            gearing,
+            KilogramSquareMeters.of(0.001),
+            Meters.of(qelmsPosMeters),
+            MetersPerSecond.of(qelmsVelMps),
+            settings.modelPositionTrust,
+            settings.modelVelocityTrust,
+            settings.encoderPositionTrust,
+            settings.carriageMass,
+            settings.drumCircumference.div(2 * Math.PI),
+            Volts.of(relmsVolts))
+        // Elevator loop runs in meters, same units SysId reports — no conversion.
+        .withCharacterizedGains(settings.characterizedKv, settings.characterizedKa);
   }
 
   private void updateInputs() {

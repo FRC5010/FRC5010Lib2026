@@ -172,6 +172,20 @@ public class YamsMechanismsFunctionalTest extends SimTestBase {
     }
   }
 
+  @Test
+  public void characterizedPlantElevatorConverges() {
+    // Same elevator as ExampleElevator, but the LQR plant comes from measured kV/kA
+    // (SysId) instead of carriage mass — proving mass need not be known directly.
+    ExampleCharacterizedElevator elevator = new ExampleCharacterizedElevator();
+    try {
+      scheduleAndRun(elevator.goToHeight(Meters.of(0.8)), 4.0);
+      assertConverges(() -> elevator.getHeight().in(Meters), 0.8, 0.05, 4.0,
+          "characterized-plant (kV/kA) elevator should settle at the commanded height");
+    } finally {
+      elevator.close();
+    }
+  }
+
   // --- PROFILED_PID style: same mechanisms, trapezoid profile + (onboard) PID ---
 
   @Test

@@ -14,6 +14,7 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N2;
 import edu.wpi.first.math.system.LinearSystem;
 import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Distance;
@@ -47,6 +48,10 @@ public class MechanismLqrConfig extends LQRConfig {
   private final Vector<N2> modelStdDevs;
   /** Measurement (position) std-dev for the 2-state plants; null for FLYWHEEL. */
   private final Vector<N1> encoderStdDevs;
+  /** Measured kV in the loop's native units; 0 = use the physics-model plant. */
+  private double characterizedKv;
+  /** Measured kA in the loop's native units; 0 = use the physics-model plant. */
+  private double characterizedKa;
 
   private MechanismLqrConfig(DCMotor motor, MechanismGearing gearing, MomentOfInertia moi,
       Vector<N2> modelStdDevs, Vector<N1> encoderStdDevs) {
@@ -131,6 +136,41 @@ public class MechanismLqrConfig extends LQRConfig {
     config.withFlyWheel(qelmsVelocity, modelVelocityTrust, encoderVelocityTrust);
     config.withRelms(relms);
     return config;
+  }
+
+  /**
+   * Switches the LQR plant from the physics model (mass/MOI/gearing + ideal motor) to a
+   * model <em>identified from a SysId test on the real mechanism</em>
+   * ({@code LinearSystemId.identifyPositionSystem} / {@code identifyVelocitySystem}).
+   *
+   * <p><b>Why:</b> the LQR is only as good as its plant. The physics-model plant assumes
+   * the CAD mass/MOI is right and the motor is lossless; measured kV/kA capture the real
+   * system — friction, gearbox efficiency, the battery sag your robot actually has. When
+   * kV/kA come from SysId, parameters like mass don't need to be known at all: they are
+   * implied by how the mechanism actually responded to voltage.
+   *
+   * @param kv measured velocity gain, volts per unit velocity in the <b>loop's native
+   *           units</b>: V/(m/s) for elevators, V/(rad/s) for arms/pivots/flywheels.
+   *           The wrapper settings accept SysId-friendly units and convert.
+   * @param ka measured acceleration gain, volts per unit acceleration (same unit base)
+   * @return this config for chaining
+   */
+  public MechanismLqrConfig withCharacterizedGains(double kv, double ka) {
+    this.characterizedKv = kv;
+    this.characterizedKa = ka;
+    return this;
+  }
+
+  @Override
+  public LinearSystem<?, ?, ?> getSystem() {
+    if (characterizedKv > 0 && characterizedKa > 0) {
+      return switch (getType()) {
+        case FLYWHEEL -> LinearSystemId.identifyVelocitySystem(characterizedKv, characterizedKa);
+        case ARM, ELEVATOR ->
+            LinearSystemId.identifyPositionSystem(characterizedKv, characterizedKa);
+      };
+    }
+    return super.getSystem();
   }
 
   @Override
