@@ -148,6 +148,56 @@ public class YamsMechanismsFunctionalTest extends SimTestBase {
     }
   }
 
+  // --- PROFILED_PID style: same mechanisms, trapezoid profile + (onboard) PID ---
+
+  @Test
+  public void profiledElevatorReachesCommandedHeight() {
+    ExampleProfiledElevator elevator = new ExampleProfiledElevator();
+    try {
+      scheduleAndRun(elevator.goToHeight(Meters.of(0.8)), 4.0);
+      assertConverges(() -> elevator.getHeight().in(Meters), 0.8, 0.05, 4.0,
+          "profiled-PID elevator should settle at the commanded height");
+    } finally {
+      elevator.close();
+    }
+  }
+
+  @Test
+  public void profiledArmReachesCommandedAngle() {
+    ExampleProfiledArm arm = new ExampleProfiledArm();
+    try {
+      scheduleAndRun(arm.goToAngle(Degrees.of(90)), 4.0);
+      assertConverges(() -> arm.getAngle().in(Degrees), 90, 5, 4.0,
+          "profiled-PID arm should settle at the commanded angle");
+    } finally {
+      arm.close();
+    }
+  }
+
+  @Test
+  public void profiledTurretReachesCommandedAngle() {
+    ExampleProfiledTurret turret = new ExampleProfiledTurret();
+    try {
+      scheduleAndRun(turret.goToAngle(Degrees.of(90)), 4.0);
+      assertConverges(() -> turret.getAngle().in(Degrees), 90, 5, 4.0,
+          "profiled-PID turret should settle at the commanded angle");
+    } finally {
+      turret.close();
+    }
+  }
+
+  @Test
+  public void profiledShooterReachesCommandedSpeed() {
+    ExampleProfiledShooter shooter = new ExampleProfiledShooter();
+    try {
+      scheduleAndRun(shooter.goToSpeed(RPM.of(3000)), 4.0);
+      assertConverges(() -> shooter.getSpeed().in(RPM), 3000, 150, 4.0,
+          "profiled-PID shooter should settle at the commanded speed");
+    } finally {
+      shooter.close();
+    }
+  }
+
   @Test
   public void doubleJointedArmReachesJointAngles() {
     ExampleDoubleJointedArm arm = new ExampleDoubleJointedArm();

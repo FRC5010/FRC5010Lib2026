@@ -13,6 +13,7 @@ import static edu.wpi.first.units.Units.Second;
 import static edu.wpi.first.units.Units.Seconds;
 import static edu.wpi.first.units.Units.Volts;
 
+import edu.wpi.first.math.controller.SimpleMotorFeedforward;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularAcceleration;
@@ -23,6 +24,7 @@ import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import org.frc5010.common.tuning.TunableGains;
 import yams.gearing.GearBox;
 import yams.gearing.MechanismGearing;
 import yams.math.LQRConfig;
@@ -52,6 +54,8 @@ public class YamsPivot extends SubsystemBase {
   public static class Settings {
     /** Mechanism name used for telemetry and tuning tables. */
     public String name = "Pivot";
+    /** Closed-loop control style: LQR (default) or profiled PID. */
+    public ControlStyle controlStyle = ControlStyle.LQR;
     /** Motor controller vendor. */
     public MechanismMotor.Vendor vendor = MechanismMotor.Vendor.TALON_FX;
     /** CAN ID of the motor controller. */
@@ -83,6 +87,18 @@ public class YamsPivot extends SubsystemBase {
     /** Control effort tolerance. Smaller = gentler. 12 V = full battery. */
     public Voltage relms = Volts.of(12);
 
+    // --- PROFILED_PID gains (live-tunable; TalonFX onboard, units = mechanism rotations) ---
+    /** Proportional gain, volts per pivot rotation of error. */
+    public double kP = 30;
+    /** Integral gain. */
+    public double kI = 0;
+    /** Derivative gain. */
+    public double kD = 0;
+    /** Static friction feedforward, volts (PROFILED_PID only). */
+    public double kS = 0;
+    /** Velocity feedforward, volts per pivot rotation/s (PROFILED_PID only — the LQR provides its own). */
+    public double kV = 0;
+
     // --- Kalman filter trust (rarely changed) ---
     /** Model position standard deviation. */
     public Angle modelPositionTrust = Radians.of(0.015);
@@ -94,14 +110,15 @@ public class YamsPivot extends SubsystemBase {
 
   private final Settings settings;
   private final MechanismGearing gearing;
-  private final LQRController lqr;
+  private final LQRController lqr; // null in PROFILED_PID style
   private final SmartMotorControllerConfig motorConfig;
   private final SmartMotorController motor;
   private final Pivot pivot;
-  private final LqrTunables tunables;
+  private final LqrTunables lqrTunables; // null in PROFILED_PID style
+  private final TunableGains pidGains; // null in LQR style
 
   /**
-   * Builds the pivot subsystem, motor wrapper, LQR controller, and simulation.
+   * Builds the pivot subsystem, motor wrapper, controller, and simulation.
    *
    * @param settings robot-specific pivot parameters
    */
@@ -109,10 +126,13 @@ public class YamsPivot extends SubsystemBase {
     this.settings = settings;
     setName(settings.name);
     gearing = new MechanismGearing(GearBox.fromReductionStages(settings.gearReductionStages));
-    lqr = new LQRController(buildLqrConfig(
-        settings.qelmsPosition.in(Rotations),
-        settings.qelmsVelocity.in(RotationsPerSecond),
-        settings.relms.in(Volts)));
+    boolean useLqr = settings.controlStyle == ControlStyle.LQR;
+    lqr = useLqr
+        ? new LQRController(buildLqrConfig(
+            settings.qelmsPosition.in(Rotations),
+            settings.qelmsVelocity.in(RotationsPerSecond),
+            settings.relms.in(Volts)))
+        : null;
     motorConfig = new SmartMotorControllerConfig(this)
         .withGearing(gearing)
         .withSoftLimit(settings.minAngle, settings.maxAngle)
@@ -120,19 +140,31 @@ public class YamsPivot extends SubsystemBase {
         .withStatorCurrentLimit(settings.statorCurrentLimit)
         .withTelemetry(settings.name + "Motor", TelemetryVerbosity.HIGH)
         .withTrapezoidalProfile(settings.maxVelocity, settings.maxAcceleration)
-        .withControlMode(ControlMode.CLOSED_LOOP)
-        // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
-        .withClosedLoopController(lqr);
+        .withControlMode(ControlMode.CLOSED_LOOP);
+    if (!useLqr && (settings.kS != 0 || settings.kV != 0)) {
+      // Gravity-free mechanism: plain kS/kV feedforward (PROFILED_PID only).
+      motorConfig.withFeedforward(new SimpleMotorFeedforward(settings.kS, settings.kV));
+    }
+    if (useLqr) {
+      // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
+      motorConfig.withClosedLoopController(lqr);
+    } else {
+      motorConfig.withClosedLoopController(settings.kP, settings.kI, settings.kD);
+    }
     motor = MechanismMotor.create(settings.vendor, settings.canId, settings.motorModel, motorConfig);
     pivot = new Pivot(new PivotConfig(motor)
         .withMOI(settings.moi)
         .withHardLimit(settings.minAngle, settings.maxAngle)
         .withStartingPosition(settings.startingAngle)
         .withTelemetry(settings.name, TelemetryVerbosity.HIGH));
-    tunables = new LqrTunables(settings.name,
-        settings.qelmsPosition.in(Rotations),
-        settings.qelmsVelocity.in(RotationsPerSecond),
-        settings.relms.in(Volts));
+    lqrTunables = useLqr
+        ? new LqrTunables(settings.name,
+            settings.qelmsPosition.in(Rotations),
+            settings.qelmsVelocity.in(RotationsPerSecond),
+            settings.relms.in(Volts))
+        : null;
+    pidGains = useLqr ? null
+        : new TunableGains(settings.name, "pid", settings.kP, settings.kI, settings.kD, 0);
   }
 
   private LQRConfig buildLqrConfig(double qelmsPosRot, double qelmsVelRps, double relmsVolts) {
@@ -150,10 +182,14 @@ public class YamsPivot extends SubsystemBase {
 
   @Override
   public void periodic() {
-    if (tunables.hasChanged()) {
+    if (lqr != null && lqrTunables.hasChanged()) {
       lqr.updateConfig(buildLqrConfig(
-          tunables.qelmsPosition(), tunables.qelmsVelocity(), tunables.relms()));
+          lqrTunables.qelmsPosition(), lqrTunables.qelmsVelocity(), lqrTunables.relms()));
       motor.startClosedLoopController();
+    }
+    if (pidGains != null && pidGains.hasChanged()) {
+      motorConfig.withClosedLoopController(pidGains.kP(), pidGains.kI(), pidGains.kD());
+      motor.applyConfig(motorConfig);
     }
     pivot.updateTelemetry();
   }

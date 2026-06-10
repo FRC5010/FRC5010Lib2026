@@ -27,6 +27,7 @@ import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import org.frc5010.common.tuning.TunableGains;
 import yams.gearing.GearBox;
 import yams.gearing.MechanismGearing;
 import yams.math.LQRConfig;
@@ -61,6 +62,8 @@ public class YamsArm extends SubsystemBase {
   public static class Settings {
     /** Mechanism name used for telemetry and tuning tables. */
     public String name = "Arm";
+    /** Closed-loop control style: LQR (default) or profiled PID. */
+    public ControlStyle controlStyle = ControlStyle.LQR;
     /** Motor controller vendor. */
     public MechanismMotor.Vendor vendor = MechanismMotor.Vendor.TALON_FX;
     /** CAN ID of the motor controller. */
@@ -96,6 +99,18 @@ public class YamsArm extends SubsystemBase {
     /** Control effort tolerance. Smaller = gentler. 12 V = full battery. */
     public Voltage relms = Volts.of(12);
 
+    // --- PROFILED_PID gains (live-tunable; TalonFX onboard, units = mechanism rotations) ---
+    /** Proportional gain, volts per arm rotation of error. */
+    public double kP = 30;
+    /** Integral gain. */
+    public double kI = 0;
+    /** Derivative gain. */
+    public double kD = 0;
+    /** Static friction feedforward, volts (PROFILED_PID only). */
+    public double kS = 0;
+    /** Velocity feedforward, volts per arm rotation/s (PROFILED_PID only — the LQR provides its own). */
+    public double kV = 0;
+
     // --- Kalman filter trust (rarely changed) ---
     /** Model position standard deviation. */
     public Angle modelPositionTrust = Radians.of(0.015);
@@ -107,14 +122,15 @@ public class YamsArm extends SubsystemBase {
 
   private final Settings settings;
   private final MechanismGearing gearing;
-  private final LQRController lqr;
+  private final LQRController lqr; // null in PROFILED_PID style
   private final SmartMotorControllerConfig motorConfig;
   private final SmartMotorController motor;
   private final Arm arm;
-  private final LqrTunables tunables;
+  private final LqrTunables lqrTunables; // null in PROFILED_PID style
+  private final TunableGains pidGains; // null in LQR style
 
   /**
-   * Builds the arm subsystem, motor wrapper, LQR controller, and simulation.
+   * Builds the arm subsystem, motor wrapper, controller, and simulation.
    *
    * @param settings robot-specific arm parameters
    */
@@ -122,22 +138,32 @@ public class YamsArm extends SubsystemBase {
     this.settings = settings;
     setName(settings.name);
     gearing = new MechanismGearing(GearBox.fromReductionStages(settings.gearReductionStages));
-    lqr = new LQRController(buildLqrConfig(
-        settings.qelmsPosition.in(Rotations),
-        settings.qelmsVelocity.in(RotationsPerSecond),
-        settings.relms.in(Volts)));
+    boolean useLqr = settings.controlStyle == ControlStyle.LQR;
+    lqr = useLqr
+        ? new LQRController(buildLqrConfig(
+            settings.qelmsPosition.in(Rotations),
+            settings.qelmsVelocity.in(RotationsPerSecond),
+            settings.relms.in(Volts)))
+        : null;
     motorConfig = new SmartMotorControllerConfig(this)
         .withGearing(gearing)
         .withSoftLimit(settings.minAngle, settings.maxAngle)
         .withIdleMode(MotorMode.BRAKE)
         .withStatorCurrentLimit(settings.statorCurrentLimit)
         .withTelemetry(settings.name + "Motor", TelemetryVerbosity.HIGH)
-        // kG·cos(θ) gravity compensation; only applied when a motion profile is present.
-        .withFeedforward(new ArmFeedforward(0, settings.kG.in(Volts), 0))
+        // kG·cos(θ) gravity compensation (TalonFX: onboard Arm_Cosine). kS/kV apply
+        // only in PROFILED_PID — the LQR loop provides its own feedforward.
+        .withFeedforward(useLqr
+            ? new ArmFeedforward(0, settings.kG.in(Volts), 0)
+            : new ArmFeedforward(settings.kS, settings.kG.in(Volts), settings.kV))
         .withTrapezoidalProfile(settings.maxVelocity, settings.maxAcceleration)
-        .withControlMode(ControlMode.CLOSED_LOOP)
-        // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
-        .withClosedLoopController(lqr);
+        .withControlMode(ControlMode.CLOSED_LOOP);
+    if (useLqr) {
+      // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
+      motorConfig.withClosedLoopController(lqr);
+    } else {
+      motorConfig.withClosedLoopController(settings.kP, settings.kI, settings.kD);
+    }
     motor = MechanismMotor.create(settings.vendor, settings.canId, settings.motorModel, motorConfig);
     arm = new Arm(new ArmConfig(motor)
         .withLength(settings.length)
@@ -145,10 +171,14 @@ public class YamsArm extends SubsystemBase {
         .withHardLimit(settings.minAngle, settings.maxAngle)
         .withStartingPosition(settings.startingAngle)
         .withTelemetry(settings.name, TelemetryVerbosity.HIGH));
-    tunables = new LqrTunables(settings.name,
-        settings.qelmsPosition.in(Rotations),
-        settings.qelmsVelocity.in(RotationsPerSecond),
-        settings.relms.in(Volts));
+    lqrTunables = useLqr
+        ? new LqrTunables(settings.name,
+            settings.qelmsPosition.in(Rotations),
+            settings.qelmsVelocity.in(RotationsPerSecond),
+            settings.relms.in(Volts))
+        : null;
+    pidGains = useLqr ? null
+        : new TunableGains(settings.name, "pid", settings.kP, settings.kI, settings.kD, 0);
   }
 
   private LQRConfig buildLqrConfig(double qelmsPosRot, double qelmsVelRps, double relmsVolts) {
@@ -168,10 +198,14 @@ public class YamsArm extends SubsystemBase {
 
   @Override
   public void periodic() {
-    if (tunables.hasChanged()) {
+    if (lqr != null && lqrTunables.hasChanged()) {
       lqr.updateConfig(buildLqrConfig(
-          tunables.qelmsPosition(), tunables.qelmsVelocity(), tunables.relms()));
+          lqrTunables.qelmsPosition(), lqrTunables.qelmsVelocity(), lqrTunables.relms()));
       motor.startClosedLoopController();
+    }
+    if (pidGains != null && pidGains.hasChanged()) {
+      motorConfig.withClosedLoopController(pidGains.kP(), pidGains.kI(), pidGains.kD());
+      motor.applyConfig(motorConfig);
     }
     arm.updateTelemetry();
   }

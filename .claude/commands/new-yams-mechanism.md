@@ -5,16 +5,22 @@ double-jointed arm, or differential wrist to a robot using the YAMS wrappers in
 `org.frc5010.common.mechanisms`. Read [docs/mechanisms.md](../../docs/mechanisms.md)
 first — especially the Gotchas section.
 
-## Step 1 — Pick the mechanism type
+## Step 1 — Pick the mechanism type and control style
 
-| Robot part | Wrapper | Controller |
+| Robot part | Wrapper | Default controller |
 |---|---|---|
 | Elevator, climber (linear travel) | `YamsElevator` | ELEVATOR LQR (meters) |
 | Arm with gravity (shoulder, intake pivot) | `YamsArm` | ARM LQR + kG·cos(θ) |
 | Turret, hood, gravity-free wrist | `YamsPivot` | ARM LQR, no gravity FF |
 | Shooter wheel, roller (velocity) | `YamsFlywheel` | FLYWHEEL LQR |
-| Two-jointed arm (shoulder+elbow) | `YamsDoubleJointedArm` | profiled PID per joint |
-| Tilt+twist differential wrist | `YamsDifferentialMechanism` | profiled PID per motor |
+| Two-jointed arm (shoulder+elbow) | `YamsDoubleJointedArm` | profiled PID per joint (only style) |
+| Tilt+twist differential wrist | `YamsDifferentialMechanism` | profiled PID per motor (only style) |
+
+The four LQR wrappers also support `s.controlStyle = ControlStyle.PROFILED_PID`
+(trapezoid profile + kP/kI/kD + kS/kV/kG feedforward, onboard MotionMagic on TalonFX).
+Pick PROFILED_PID when the team prefers hand-tunable gains or the mass/MOI model is
+uncertain; pick LQR when the physical parameters are known. Profiled examples:
+`ExampleProfiledElevator/Arm/Turret/Shooter` (CAN 31–34).
 
 ## Step 2 — Gather the robot-specific numbers
 

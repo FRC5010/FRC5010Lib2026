@@ -38,9 +38,9 @@ SwerveRobotContainer (abstract) ← keyboard drive, alliance pose, visual-test a
 SimRobotState (abstract SubsystemBase) ──► frc.robot.DemoIntake (2026 Fuel intake + ballistic firing)
 
 YAMS mechanisms (org.frc5010.common.mechanisms — LQR-first wrappers over the YAMS vendordep)
- ├── YamsElevator / YamsArm / YamsPivot / YamsFlywheel   ← state-space LQR + live NT tuning
- ├── YamsDoubleJointedArm / YamsDifferentialMechanism    ← profiled PID (LQR can't model coupled joints)
- └── frc.robot.mechanisms.Example* (TalonFX/Kraken examples, CAN 21–28 — team-code pattern)
+ ├── YamsElevator / YamsArm / YamsPivot / YamsFlywheel   ← ControlStyle.LQR (default) or PROFILED_PID, live NT tuning
+ ├── YamsDoubleJointedArm / YamsDifferentialMechanism    ← profiled PID only (LQR can't model coupled joints)
+ └── frc.robot.mechanisms.Example* (TalonFX/Kraken: LQR CAN 21–28, ExampleProfiled* CAN 31–34)
 ```
 
 **Critical distinction — `instanceof GyroIOSim` in `AkitSwerveDrive.periodic()`:**

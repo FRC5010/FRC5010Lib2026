@@ -22,6 +22,7 @@ import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import org.frc5010.common.tuning.TunableGains;
 import yams.gearing.GearBox;
 import yams.gearing.MechanismGearing;
 import yams.math.LQRConfig;
@@ -62,6 +63,8 @@ public class YamsElevator extends SubsystemBase {
   public static class Settings {
     /** Mechanism name used for telemetry and tuning tables. */
     public String name = "Elevator";
+    /** Closed-loop control style: LQR (default) or profiled PID. */
+    public ControlStyle controlStyle = ControlStyle.LQR;
     /** Motor controller vendor. */
     public MechanismMotor.Vendor vendor = MechanismMotor.Vendor.TALON_FX;
     /** CAN ID of the motor controller. */
@@ -105,6 +108,18 @@ public class YamsElevator extends SubsystemBase {
     /** Control effort tolerance. Smaller = gentler. 12 V = full battery. */
     public Voltage relms = Volts.of(12);
 
+    // --- PROFILED_PID gains (live-tunable; TalonFX onboard, units = mechanism rotations) ---
+    /** Proportional gain, volts per drum rotation of error. */
+    public double kP = 4;
+    /** Integral gain. */
+    public double kI = 0;
+    /** Derivative gain. */
+    public double kD = 0;
+    /** Static friction feedforward, volts (PROFILED_PID only). */
+    public double kS = 0;
+    /** Velocity feedforward, volts per drum rotation/s (PROFILED_PID only — the LQR provides its own). */
+    public double kV = 0;
+
     // --- Kalman filter trust (rarely changed) ---
     /** Model position standard deviation — how much you trust the plant model. */
     public Distance modelPositionTrust = Meters.of(0.05);
@@ -116,14 +131,15 @@ public class YamsElevator extends SubsystemBase {
 
   private final Settings settings;
   private final MechanismGearing gearing;
-  private final LQRController lqr;
+  private final LQRController lqr; // null in PROFILED_PID style
   private final SmartMotorControllerConfig motorConfig;
   private final SmartMotorController motor;
   private final Elevator elevator;
-  private final LqrTunables tunables;
+  private final LqrTunables lqrTunables; // null in PROFILED_PID style
+  private final TunableGains pidGains; // null in LQR style
 
   /**
-   * Builds the elevator subsystem, its motor wrapper, LQR controller, and simulation.
+   * Builds the elevator subsystem, its motor wrapper, controller, and simulation.
    *
    * @param settings robot-specific elevator parameters
    */
@@ -131,10 +147,13 @@ public class YamsElevator extends SubsystemBase {
     this.settings = settings;
     setName(settings.name);
     gearing = new MechanismGearing(GearBox.fromReductionStages(settings.gearReductionStages));
-    lqr = new LQRController(buildLqrConfig(
-        settings.qelmsPosition.in(Meters),
-        settings.qelmsVelocity.in(MetersPerSecond),
-        settings.relms.in(Volts)));
+    boolean useLqr = settings.controlStyle == ControlStyle.LQR;
+    lqr = useLqr
+        ? new LQRController(buildLqrConfig(
+            settings.qelmsPosition.in(Meters),
+            settings.qelmsVelocity.in(MetersPerSecond),
+            settings.relms.in(Volts)))
+        : null;
     motorConfig = new SmartMotorControllerConfig(this)
         .withMechanismCircumference(settings.drumCircumference)
         .withGearing(gearing)
@@ -142,22 +161,34 @@ public class YamsElevator extends SubsystemBase {
         .withIdleMode(MotorMode.BRAKE)
         .withStatorCurrentLimit(settings.statorCurrentLimit)
         .withTelemetry(settings.name + "Motor", TelemetryVerbosity.HIGH)
-        // ElevatorFeedforward kG cancels gravity; also flips the loop into linear (meters) mode.
-        .withFeedforward(new ElevatorFeedforward(0, settings.kG.in(Volts), 0))
+        // kG cancels gravity (TalonFX: onboard Elevator_Static); also flips the YAMS
+        // loop into linear (meters) mode. kS/kV apply only in PROFILED_PID — the LQR
+        // loop provides its own plant-inversion feedforward.
+        .withFeedforward(useLqr
+            ? new ElevatorFeedforward(0, settings.kG.in(Volts), 0)
+            : new ElevatorFeedforward(settings.kS, settings.kG.in(Volts), settings.kV))
         .withTrapezoidalProfile(settings.maxVelocity, settings.maxAcceleration)
-        .withControlMode(ControlMode.CLOSED_LOOP)
-        // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
-        .withClosedLoopController(lqr);
+        .withControlMode(ControlMode.CLOSED_LOOP);
+    if (useLqr) {
+      // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
+      motorConfig.withClosedLoopController(lqr);
+    } else {
+      motorConfig.withClosedLoopController(settings.kP, settings.kI, settings.kD);
+    }
     motor = MechanismMotor.create(settings.vendor, settings.canId, settings.motorModel, motorConfig);
     elevator = new Elevator(new ElevatorConfig(motor)
         .withStartingHeight(settings.startingHeight)
         .withHardLimits(settings.minHeight, settings.maxHeight)
         .withMass(settings.carriageMass)
         .withTelemetry(settings.name, TelemetryVerbosity.HIGH));
-    tunables = new LqrTunables(settings.name,
-        settings.qelmsPosition.in(Meters),
-        settings.qelmsVelocity.in(MetersPerSecond),
-        settings.relms.in(Volts));
+    lqrTunables = useLqr
+        ? new LqrTunables(settings.name,
+            settings.qelmsPosition.in(Meters),
+            settings.qelmsVelocity.in(MetersPerSecond),
+            settings.relms.in(Volts))
+        : null;
+    pidGains = useLqr ? null
+        : new TunableGains(settings.name, "pid", settings.kP, settings.kI, settings.kD, 0);
   }
 
   private LQRConfig buildLqrConfig(double qelmsPosMeters, double qelmsVelMps, double relmsVolts) {
@@ -178,11 +209,15 @@ public class YamsElevator extends SubsystemBase {
 
   @Override
   public void periodic() {
-    if (tunables.hasChanged()) {
+    if (lqr != null && lqrTunables.hasChanged()) {
       lqr.updateConfig(buildLqrConfig(
-          tunables.qelmsPosition(), tunables.qelmsVelocity(), tunables.relms()));
+          lqrTunables.qelmsPosition(), lqrTunables.qelmsVelocity(), lqrTunables.relms()));
       // Restart the loop so profile + Kalman state re-seed at the current position.
       motor.startClosedLoopController();
+    }
+    if (pidGains != null && pidGains.hasChanged()) {
+      motorConfig.withClosedLoopController(pidGains.kP(), pidGains.kI(), pidGains.kD());
+      motor.applyConfig(motorConfig);
     }
     elevator.updateTelemetry();
   }

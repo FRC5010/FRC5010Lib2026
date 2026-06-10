@@ -5,8 +5,12 @@ Agent playbook for tuning the mechanism subsystems built on
 
 ## Identify the controller first
 
-- `YamsElevator` / `YamsArm` / `YamsPivot` / `YamsFlywheel` → **LQR** —
-  tune tolerances under `/Tuning/<name>/lqr_*`.
+- `YamsElevator` / `YamsArm` / `YamsPivot` / `YamsFlywheel` with
+  `ControlStyle.LQR` (default) → **LQR** — tune tolerances under `/Tuning/<name>/lqr_*`.
+- The same four with `ControlStyle.PROFILED_PID` → **profiled PID** — tune gains under
+  `/Tuning/<name>/pid_kP|kI|kD`. Gains are in **mechanism rotations** on TalonFX
+  (onboard MotionMagic / VelocityVoltage): kP = volts per rotation of error, kV = volts
+  per rotation/s (theoretical kV = 12 ÷ free speed in rot/s — flywheels need it set).
 - `YamsDoubleJointedArm` / `YamsDifferentialMechanism` → **profiled PID** —
   tune gains under `/Tuning/<name>/*_kP|kI|kD`.
 

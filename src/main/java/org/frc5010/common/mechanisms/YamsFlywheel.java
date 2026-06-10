@@ -12,6 +12,7 @@ import static edu.wpi.first.units.Units.Second;
 import static edu.wpi.first.units.Units.Seconds;
 import static edu.wpi.first.units.Units.Volts;
 
+import edu.wpi.first.math.controller.SimpleMotorFeedforward;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Current;
@@ -21,6 +22,7 @@ import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import org.frc5010.common.tuning.TunableGains;
 import yams.gearing.GearBox;
 import yams.gearing.MechanismGearing;
 import yams.math.LQRConfig;
@@ -53,6 +55,8 @@ public class YamsFlywheel extends SubsystemBase {
   public static class Settings {
     /** Mechanism name used for telemetry and tuning tables. */
     public String name = "Flywheel";
+    /** Closed-loop control style: LQR (default) or profiled PID. */
+    public ControlStyle controlStyle = ControlStyle.LQR;
     /** Motor controller vendor. */
     public MechanismMotor.Vendor vendor = MechanismMotor.Vendor.TALON_FX;
     /** CAN ID of the motor controller. */
@@ -72,6 +76,21 @@ public class YamsFlywheel extends SubsystemBase {
     /** Control effort tolerance. Smaller = gentler. 12 V = full battery. */
     public Voltage relms = Volts.of(12);
 
+    // --- PROFILED_PID gains (live-tunable; TalonFX onboard VelocityVoltage, mechanism rot/s) ---
+    /** Proportional gain, volts per wheel rotation/s of error. */
+    public double kP = 0.1;
+    /** Integral gain. */
+    public double kI = 0;
+    /** Derivative gain. */
+    public double kD = 0;
+    /** Static friction feedforward, volts (PROFILED_PID only). */
+    public double kS = 0;
+    /**
+     * Velocity feedforward, volts per wheel rotation/s — essential for velocity PID
+     * (≈ 12 / free speed in rot/s). PROFILED_PID only; the LQR provides its own.
+     */
+    public double kV = 0;
+
     // --- Kalman filter trust (rarely changed) ---
     /** Model velocity standard deviation. */
     public AngularVelocity modelVelocityTrust = RadiansPerSecond.of(3.0);
@@ -84,14 +103,15 @@ public class YamsFlywheel extends SubsystemBase {
 
   private final Settings settings;
   private final MechanismGearing gearing;
-  private final LQRController lqr;
+  private final LQRController lqr; // null in PROFILED_PID style
   private final SmartMotorControllerConfig motorConfig;
   private final SmartMotorController motor;
   private final FlyWheel flywheel;
-  private final LqrTunables tunables;
+  private final LqrTunables lqrTunables; // null in PROFILED_PID style
+  private final TunableGains pidGains; // null in LQR style
 
   /**
-   * Builds the flywheel subsystem, motor wrapper, LQR controller, and simulation.
+   * Builds the flywheel subsystem, motor wrapper, controller, and simulation.
    *
    * @param settings robot-specific flywheel parameters
    */
@@ -99,26 +119,40 @@ public class YamsFlywheel extends SubsystemBase {
     this.settings = settings;
     setName(settings.name);
     gearing = new MechanismGearing(GearBox.fromReductionStages(settings.gearReductionStages));
-    lqr = new LQRController(buildLqrConfig(
-        settings.qelmsVelocity.in(RotationsPerSecond),
-        settings.relms.in(Volts)));
+    boolean useLqr = settings.controlStyle == ControlStyle.LQR;
+    lqr = useLqr
+        ? new LQRController(buildLqrConfig(
+            settings.qelmsVelocity.in(RotationsPerSecond),
+            settings.relms.in(Volts)))
+        : null;
     motorConfig = new SmartMotorControllerConfig(this)
         .withGearing(gearing)
         .withIdleMode(MotorMode.COAST)
         .withStatorCurrentLimit(settings.statorCurrentLimit)
         .withTelemetry(settings.name + "Motor", TelemetryVerbosity.HIGH)
-        .withControlMode(ControlMode.CLOSED_LOOP)
-        // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
-        .withClosedLoopController(lqr);
+        .withControlMode(ControlMode.CLOSED_LOOP);
+    if (useLqr) {
+      // No kV feedforward in LQR mode — the LinearSystemLoop provides plant inversion.
+      // Must stay LAST: the PID-style withClosedLoopController overloads clear the LQR.
+      motorConfig.withClosedLoopController(lqr);
+    } else {
+      motorConfig
+          .withFeedforward(new SimpleMotorFeedforward(settings.kS, settings.kV))
+          .withClosedLoopController(settings.kP, settings.kI, settings.kD);
+    }
     motor = MechanismMotor.create(settings.vendor, settings.canId, settings.motorModel, motorConfig);
     flywheel = new FlyWheel(new FlyWheelConfig(motor)
         .withDiameter(settings.diameter)
         .withMass(settings.mass)
         .withTelemetry(settings.name, TelemetryVerbosity.HIGH));
-    tunables = new LqrTunables(settings.name,
-        0, // position weight unused for flywheel LQR
-        settings.qelmsVelocity.in(RotationsPerSecond),
-        settings.relms.in(Volts));
+    lqrTunables = useLqr
+        ? new LqrTunables(settings.name,
+            0, // position weight unused for flywheel LQR
+            settings.qelmsVelocity.in(RotationsPerSecond),
+            settings.relms.in(Volts))
+        : null;
+    pidGains = useLqr ? null
+        : new TunableGains(settings.name, "pid", settings.kP, settings.kI, settings.kD, 0);
   }
 
   private LQRConfig buildLqrConfig(double qelmsVelRps, double relmsVolts) {
@@ -137,9 +171,13 @@ public class YamsFlywheel extends SubsystemBase {
 
   @Override
   public void periodic() {
-    if (tunables.hasChanged()) {
-      lqr.updateConfig(buildLqrConfig(tunables.qelmsVelocity(), tunables.relms()));
+    if (lqr != null && lqrTunables.hasChanged()) {
+      lqr.updateConfig(buildLqrConfig(lqrTunables.qelmsVelocity(), lqrTunables.relms()));
       motor.startClosedLoopController();
+    }
+    if (pidGains != null && pidGains.hasChanged()) {
+      motorConfig.withClosedLoopController(pidGains.kP(), pidGains.kI(), pidGains.kD());
+      motor.applyConfig(motorConfig);
     }
     flywheel.updateTelemetry();
   }

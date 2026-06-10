@@ -8,14 +8,17 @@ control** and live NetworkTables tuning.
 ## Architecture
 
 ```
-Settings (public fields — robot-specific numbers ONLY)
+Settings (public fields — robot-specific numbers ONLY, incl. controlStyle)
    │
    ▼
-Common wrapper (org.frc5010.common.mechanisms)        Controller
+Common wrapper (org.frc5010.common.mechanisms)        Controller (ControlStyle.LQR default)
  ├── YamsElevator        ─ ELEVATOR-type LQR (meters) + trapezoid profile + kG FF
  ├── YamsArm             ─ ARM-type LQR (rotations) + trapezoid profile + kG·cos(θ) FF
  ├── YamsPivot           ─ ARM-type LQR (no gravity FF) — turrets, hoods, wrists
  ├── YamsFlywheel        ─ FLYWHEEL-type LQR (velocity, plant-inversion FF built in)
+ │     └── ...or ControlStyle.PROFILED_PID on any of the four above:
+ │         trapezoid profile + kP/kI/kD + kS/kV/kG FF (TalonFX: onboard MotionMagic /
+ │         VelocityVoltage; gains in mechanism rotations)
  ├── YamsDoubleJointedArm ─ profiled PID per joint (LQR doesn't model coupled joints)
  └── YamsDifferentialMechanism ─ profiled PID per motor (tilt + twist)
    │
@@ -28,9 +31,32 @@ YAMS mechanism (Elevator / Arm / Pivot / FlyWheel / DoubleJointedArm / Different
 
 **Common vs robot-specific:** all control logic, LQR construction, and tuning plumbing
 live in `org.frc5010.common.mechanisms`. Team code only fills in a `Settings` object —
-see the six examples in `src/main/java/frc/robot/mechanisms/` (`ExampleElevator`,
-`ExampleArm`, `ExampleTurret`, `ExampleShooter`, `ExampleDoubleJointedArm`,
-`ExampleDifferentialWrist`), all configured with Kraken X60s on TalonFX, CAN IDs 21–28.
+see the examples in `src/main/java/frc/robot/mechanisms/`, all Kraken X60 on TalonFX:
+
+| LQR style (CAN 21–28) | Profiled-PID style (CAN 31–34) |
+|---|---|
+| `ExampleElevator` | `ExampleProfiledElevator` |
+| `ExampleArm` | `ExampleProfiledArm` |
+| `ExampleTurret` | `ExampleProfiledTurret` |
+| `ExampleShooter` | `ExampleProfiledShooter` |
+| `ExampleDoubleJointedArm` (profiled PID — only style) | |
+| `ExampleDifferentialWrist` (profiled PID — only style) | |
+
+## Choosing a control style
+
+Both styles share the same settings, commands, telemetry, profile limits, and tests —
+switching is `s.controlStyle = ControlStyle.PROFILED_PID;` plus gains.
+
+- **LQR** (default): gains computed from the plant model (motor, gearing, mass/MOI).
+  Tune physical tolerances, not gains — but the model must be accurate, and the loop
+  always runs on the RIO in the YAMS Notifier.
+- **PROFILED_PID**: classic trapezoid profile + kP/kI/kD with kS/kV/kG feedforward.
+  On TalonFX everything runs *onboard* (MotionMagic for position, VelocityVoltage for
+  flywheels; YAMS maps `ElevatorFeedforward`/`ArmFeedforward`/`SimpleMotorFeedforward`
+  into Slot0 kS/kV/kG with the right GravityType). Gains are in **mechanism rotations**
+  (kP = volts per rotation of error), even for elevators. Simpler to reason about,
+  tolerant of model error, 1 kHz onboard execution — but hand-tuned.
+  For flywheels in this style, kV does most of the work (≈ 12 V ÷ free speed in rot/s).
 
 ## Adding a mechanism (short version — see `/new-yams-mechanism` for the playbook)
 
@@ -73,7 +99,9 @@ LQR is tuned with *physical tolerances*, not abstract gains:
 
 All three are live-tunable under `/Tuning/<name>/lqr_*` (AdvantageScope / Shuffleboard).
 On change, the wrapper rebuilds the regulator and restarts the loop at the current
-state. See `/tune-mechanism` for the full tuning workflow.
+state. In PROFILED_PID style the tunables are `/Tuning/<name>/pid_kP|kI|kD` instead
+(re-applied to the motor on change — lands onboard for TalonFX). See `/tune-mechanism`
+for the full tuning workflow.
 
 LQR supports exactly three plants — **ELEVATOR**, **ARM** (also used for pivots), and
 **FLYWHEEL**. DoubleJointedArm and DifferentialMechanism are coupled multi-motor
@@ -129,8 +157,9 @@ systems the LQR types don't model, so those wrappers use profiled PID with
 
 `src/test/java/frc/robot/mechanisms/YamsMechanismsFunctionalTest.java` builds each
 example subsystem for real (TalonFX wrapper + YAMS sim + closed loop), schedules its
-public command, and asserts the mechanism reaches the commanded state — including one
-live-retune-over-NT test. They run in the normal `./gradlew test` suite.
+public command, and asserts the mechanism reaches the commanded state — covering both
+control styles (LQR and profiled PID) plus one live-retune-over-NT test. They run in
+the normal `./gradlew test` suite.
 
 ## Real-robot bring-up
 
