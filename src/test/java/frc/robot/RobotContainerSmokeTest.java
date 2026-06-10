@@ -176,6 +176,16 @@ class RobotContainerSmokeTest extends SimTestBase {
     double height = elevator.getHeight().in(edu.wpi.first.units.Units.Meters);
     assertTrue(height > 0.3,
         "X button should drive the demo elevator from 0.1 m toward 0.75 m, was " + height);
+
+    // Releasing X must send everything back to its start point (0.1 m for the elevator).
+    controllerSim.setXButton(false);
+    DriverStationSim.notifyNewData();
+    DriverStation.refreshData();
+    pumpCycles(150); // 3 s of sim time to descend
+
+    double restored = elevator.getHeight().in(edu.wpi.first.units.Units.Meters);
+    assertTrue(restored < 0.3,
+        "Releasing X should return the demo elevator toward its 0.1 m start, was " + restored);
   }
 
   @Test

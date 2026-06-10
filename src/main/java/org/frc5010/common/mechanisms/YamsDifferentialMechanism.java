@@ -207,6 +207,11 @@ public class YamsDifferentialMechanism extends SubsystemBase {
     return diffy;
   }
 
+  /** The settings this mechanism was built with (start positions, limits, ...). */
+  public Settings getSettings() {
+    return settings;
+  }
+
   /** Stops the closed-loop Notifiers and frees the CAN devices. For unit tests. */
   public void close() {
     leftMotor.close();

@@ -304,6 +304,11 @@ public class YamsArm extends SubsystemBase {
     return motor;
   }
 
+  /** The settings this mechanism was built with (start positions, limits, ...). */
+  public Settings getSettings() {
+    return settings;
+  }
+
   /** Stops the closed-loop Notifier and frees the CAN device. For unit tests. */
   public void close() {
     motor.close();

@@ -232,7 +232,9 @@ fidelity end-to-end.
 `RealRobot` instantiates every example mechanism in simulation (sim only — the CAN
 IDs don't exist on a real robot) and binds the **X button** to drive them all to a
 mid-travel point in parallel (elevators → 0.75 m, arms/turrets → 90°, shooters →
-3000 RPM, DJA → 90°/0°, wrist → 45°/30°). Run `./gradlew simulateJava`, enable,
+3000 RPM, DJA → 90°/0°, wrist → 45°/30°); releasing X returns everything to its
+configured start point (read from each mechanism's `getSettings()`, flywheels spin
+down to 0). Run `./gradlew simulateJava`, enable,
 press X, and watch the Mechanism2d widgets under SmartDashboard →
 `<name>/mechanism`. Tests that construct `RobotContainer` must call
 `RealRobot.closeDemoMechanisms()` in teardown and pump time asynchronously

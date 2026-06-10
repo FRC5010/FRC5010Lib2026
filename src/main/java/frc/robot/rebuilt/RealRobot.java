@@ -149,5 +149,27 @@ public class RealRobot extends SwerveRobotContainer {
         jointedArm.goToAngles(Degrees.of(90), Degrees.of(0)),
         wrist.goToAngles(Degrees.of(45), Degrees.of(30))
     ).withName("AllMechanismsToMidpoints"));
+
+    // Releasing X returns everything to its configured start point (read from the
+    // settings so the values can't drift from the Example* classes). The onFalse
+    // commands share requirements with the midpoint group, so they interrupt it.
+    controller.x().onFalse(Commands.parallel(
+        elevator.goToHeight(elevator.getSettings().startingHeight),
+        profiledElevator.goToHeight(profiledElevator.getSettings().startingHeight),
+        characterizedElevator.goToHeight(characterizedElevator.getSettings().startingHeight),
+        arm.goToAngle(arm.getSettings().startingAngle),
+        profiledArm.goToAngle(profiledArm.getSettings().startingAngle),
+        turret.goToAngle(turret.getSettings().startingAngle),
+        profiledTurret.goToAngle(profiledTurret.getSettings().startingAngle),
+        // Flywheels have no position; "start point" = spun down to rest
+        shooter.goToSpeed(RPM.of(0)),
+        profiledShooter.goToSpeed(RPM.of(0)),
+        jointedArm.goToAngles(
+            jointedArm.getSettings().lowerJoint.startingAngle,
+            jointedArm.getSettings().upperJoint.startingAngle),
+        wrist.goToAngles(
+            wrist.getSettings().startingTilt,
+            wrist.getSettings().startingTwist)
+    ).withName("AllMechanismsToStartPoints"));
   }
 }
