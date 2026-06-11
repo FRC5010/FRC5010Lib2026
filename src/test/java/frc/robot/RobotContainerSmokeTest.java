@@ -7,7 +7,7 @@ import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj.simulation.SimHooks;
 import edu.wpi.first.wpilibj.simulation.XboxControllerSim;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
-import frc.robot.rebuilt.RealRobot;
+import frc.robot.example.ExampleRobot;
 import org.frc5010.common.robot.Mode;
 import org.frc5010.common.robot.RobotMode;
 import org.frc5010.common.util.SimTestBase;
@@ -23,7 +23,7 @@ import swervelib.simulation.ironmaple.simulation.SimulatedArena;
  * <ul>
  *   <li>{@link RobotContainer} constructs without error in both testSim and default-sim modes</li>
  *   <li>{@link RobotContainer#getAutonomousCommand()} delegates correctly to the inner
- *       {@link RealRobot}, returning the chooser's default ({@code Commands.none()}) without
+ *       {@link ExampleRobot}, returning the chooser's default ({@code Commands.none()}) without
  *       {@code -PvisualTest} and the {@code SwerveVisualTest} sequence with it</li>
  *   <li>{@link RobotContainer#resetToAllianceStart()} delegates without throwing</li>
  *   <li>The {@link DemoIntake} subsystem runs its default command for several enabled cycles
@@ -32,7 +32,7 @@ import swervelib.simulation.ironmaple.simulation.SimulatedArena;
  *
  * <p>Each test creates a {@link RobotContainer} (which calls {@code SwerveFactory.build()}
  * internally via {@link org.frc5010.common.profiles.SimRobotProfile} or
- * {@link RealRobotProfile}) and therefore owns an IronMaple {@link SimulatedArena}.
+ * {@link ExampleRobotProfile}) and therefore owns an IronMaple {@link SimulatedArena}.
  * The teardown shuts down the arena and resets its singleton via reflection, following
  * the same pattern as {@code AkitSwerveDriveSimPhysicsTest}.
  */
@@ -54,7 +54,7 @@ class RobotContainerSmokeTest extends SimTestBase {
     // Stop the YAMS demo-mechanism closed-loop Notifier threads — the scheduler
     // teardown doesn't, and stale loops would drive the shared CAN IDs (21–35)
     // during YamsMechanismsFunctionalTest later in the same JVM.
-    RealRobot.closeDemoMechanisms();
+    org.frc5010.common.profiles.SwerveRobotContainer.closeDemoMechanisms();
 
     SimulatedArena.getInstance().shutDown();
     try {
@@ -81,7 +81,7 @@ class RobotContainerSmokeTest extends SimTestBase {
 
   @Test
   void defaultSimModeConstructsWithRealProfile() {
-    // No testSim → RealRobotProfile instantiated reflectively; createDrive() uses SIM branch
+    // No testSim → ExampleRobotProfile instantiated reflectively; createDrive() uses SIM branch
     RobotContainer container = new RobotContainer();
     assertNotNull(container, "RobotContainer must construct without error in default sim mode");
   }
@@ -116,7 +116,7 @@ class RobotContainerSmokeTest extends SimTestBase {
     System.setProperty("testSim", "true");
     RobotContainer container = new RobotContainer();
     assertDoesNotThrow(container::resetToAllianceStart,
-        "resetToAllianceStart() must delegate to RealRobot without throwing");
+        "resetToAllianceStart() must delegate to ExampleRobot without throwing");
   }
 
   // ── DemoIntake subsystem periodic ─────────────────────────────────────────
@@ -162,7 +162,7 @@ class RobotContainerSmokeTest extends SimTestBase {
     System.setProperty("testSim", "true");
     new RobotContainer();
 
-    var elevator = RealRobot.getDemoElevator().orElseThrow(
+    var elevator = ExampleRobot.getDemoElevator().orElseThrow(
         () -> new AssertionError("sim demo mechanisms should exist in simulation"));
 
     enableTeleop();

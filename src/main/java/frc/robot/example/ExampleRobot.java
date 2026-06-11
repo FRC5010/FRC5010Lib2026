@@ -1,4 +1,4 @@
-package frc.robot.rebuilt;
+package frc.robot.example;
 
 import static edu.wpi.first.units.Units.Degrees;
 import static edu.wpi.first.units.Units.Meters;
@@ -18,14 +18,13 @@ import frc.robot.mechanisms.ExampleProfiledShooter;
 import frc.robot.mechanisms.ExampleProfiledTurret;
 import frc.robot.mechanisms.ExampleShooter;
 import frc.robot.mechanisms.ExampleTurret;
-import java.util.ArrayList;
 import java.util.List;
 import org.frc5010.common.profiles.SwerveRobotContainer;
 
 /**
- * Team-specific robot container for the 2026 Rebuilt season — extends
- * {@link SwerveRobotContainer} with competition hardware constants ({@link RealRobotProfile})
- * and the {@link DemoIntake} demo.
+ * Example team robot container for the 2026 Rebuilt season — the template teams copy.
+ * Extends {@link SwerveRobotContainer} with hardware constants ({@link ExampleRobotProfile}),
+ * the {@link DemoIntake} demo, and the YAMS demo mechanisms.
  *
  * <p>Auto registration is handled in {@link #buildAutos()}, which the base class schedules
  * automatically on the first scheduler tick (disabled, before the first autonomous mode).
@@ -37,35 +36,20 @@ import org.frc5010.common.profiles.SwerveRobotContainer;
  * {@code null} when {@code configureBindings()} fires — initialise such fields inside
  * {@code configureBindings()} itself (as {@code demoIntake} is here).
  */
-public class RealRobot extends SwerveRobotContainer {
+public class ExampleRobot extends SwerveRobotContainer {
 
   private DemoIntake demoIntake;
 
-  /**
-   * Close handles for the sim-only YAMS demo mechanisms. Static so tests that construct
-   * RobotContainers can stop the YAMS closed-loop Notifier threads in teardown — the
-   * scheduler's unregisterAllSubsystems() does NOT stop them, and stale loops would
-   * keep driving the shared CAN IDs during later tests in the same JVM.
-   */
-  private static final List<Runnable> demoMechanismCloseables = new ArrayList<>();
-
   /** Test hook: one representative demo mechanism, to verify the X binding end to end. */
   private static ExampleElevator demoElevator;
-
-  /** Stops and frees all sim demo mechanisms created by previous container constructions. */
-  public static void closeDemoMechanisms() {
-    demoMechanismCloseables.forEach(Runnable::run);
-    demoMechanismCloseables.clear();
-    demoElevator = null;
-  }
 
   /** The sim demo elevator, if demo mechanisms exist. For tests. */
   public static java.util.Optional<ExampleElevator> getDemoElevator() {
     return java.util.Optional.ofNullable(demoElevator);
   }
 
-  public RealRobot() {
-    super(SwerveRobotContainer.selectProfile("frc.robot.rebuilt.RealRobotProfile"));
+  public ExampleRobot() {
+    super(SwerveRobotContainer.selectProfile("frc.robot.example.ExampleRobotProfile"));
   }
 
   @Override
@@ -127,11 +111,12 @@ public class RealRobot extends SwerveRobotContainer {
     var characterizedElevator = new ExampleCharacterizedElevator();
 
     demoElevator = elevator;
-    demoMechanismCloseables.addAll(List.of(
-        elevator::close, arm::close, turret::close, shooter::close,
-        jointedArm::close, wrist::close,
-        profiledElevator::close, profiledArm::close, profiledTurret::close,
-        profiledShooter::close, characterizedElevator::close));
+    registerDemoMechanism(() -> demoElevator = null);
+    List.of((Runnable) elevator::close, arm::close, turret::close, shooter::close,
+            jointedArm::close, wrist::close,
+            profiledElevator::close, profiledArm::close, profiledTurret::close,
+            profiledShooter::close, characterizedElevator::close)
+        .forEach(SwerveRobotContainer::registerDemoMechanism);
 
     controller.x().onTrue(Commands.parallel(
         // Position mechanisms → middle of their travel range
