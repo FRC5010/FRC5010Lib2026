@@ -39,7 +39,7 @@ import org.littletonrobotics.junction.Logger;
  * onboard VelocityVoltage where kV does most of the work (≈ 12 V ÷ free speed in
  * mechanism rot/s) and kP trims the residual.
  */
-public class Flywheel extends SubsystemBase {
+public class Flywheel extends SubsystemBase implements AutoCloseable {
 
   /** Robot-specific flywheel parameters. */
   public static class Settings {
@@ -277,8 +277,10 @@ public class Flywheel extends SubsystemBase {
     }
     wasEnabled = enabled;
 
-    if (!enabled || mode == OutputMode.VOLTAGE) {
-      // Disabled (Talon neutrals itself) or an external command owns the output.
+    if (!enabled) {
+      io.stop(); // the simulated Talon doesn't self-neutral while DS packets stay fresh
+    } else if (mode == OutputMode.VOLTAGE) {
+      // An external command owns the output.
     } else if (mode == OutputMode.GOAL) {
       if (lqr != null) {
         io.setVoltage(lqr.calculateVelocity(getVelocityRadPerSec(), goalRadPerSec));
@@ -349,6 +351,7 @@ public class Flywheel extends SubsystemBase {
   }
 
   /** Stops control and frees the CAN device. For unit tests. */
+  @Override
   public void close() {
     io.close();
   }

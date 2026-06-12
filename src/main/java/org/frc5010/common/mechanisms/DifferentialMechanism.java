@@ -45,7 +45,7 @@ import org.littletonrobotics.junction.Logger;
  * by both motors (the mechanism is symmetric) and live-tunable under
  * {@code /Tuning/<name>/motors_*}.
  */
-public class DifferentialMechanism extends SubsystemBase {
+public class DifferentialMechanism extends SubsystemBase implements AutoCloseable {
 
   /** Robot-specific differential mechanism parameters. */
   public static class Settings {
@@ -77,6 +77,8 @@ public class DifferentialMechanism extends SubsystemBase {
     public AngularVelocity maxVelocity = DegreesPerSecond.of(180);
     /** Motion profile acceleration. */
     public AngularAcceleration maxAcceleration = DegreesPerSecondPerSecond.of(360);
+    /** Drop the goals when the robot is disabled (stay put on re-enable). */
+    public boolean clearGoalOnDisable = false;
     /** Stator current limit (both motors). */
     public Current statorCurrentLimit = Amps.of(40);
   }
@@ -92,6 +94,7 @@ public class DifferentialMechanism extends SubsystemBase {
   private final edu.wpi.first.wpilibj.Alert rightDisconnectedAlert;
 
   private boolean hasGoal = false;
+  private boolean wasEnabled = false;
   private double tiltGoalRot;
   private double twistGoalRot;
 
@@ -205,7 +208,18 @@ public class DifferentialMechanism extends SubsystemBase {
       rightIo.setPidGains(gains.kP(), gains.kI(), gains.kD());
     }
 
-    if (DriverStation.isEnabled() && hasGoal) {
+    boolean enabled = DriverStation.isEnabled();
+    if (!enabled && wasEnabled && settings.clearGoalOnDisable) {
+      hasGoal = false;
+    }
+    wasEnabled = enabled;
+
+    if (!enabled) {
+      // Explicit neutral — the simulated Talon doesn't self-neutral while DS packets
+      // stay fresh.
+      leftIo.stop();
+      rightIo.stop();
+    } else if (hasGoal) {
       leftIo.runPosition(tiltGoalRot + twistGoalRot);
       rightIo.runPosition(tiltGoalRot - twistGoalRot);
     }
@@ -255,6 +269,7 @@ public class DifferentialMechanism extends SubsystemBase {
   }
 
   /** Stops control and frees both CAN devices. For unit tests. */
+  @Override
   public void close() {
     leftIo.close();
     rightIo.close();

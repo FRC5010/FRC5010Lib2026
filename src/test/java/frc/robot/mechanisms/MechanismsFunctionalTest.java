@@ -61,7 +61,12 @@ public class MechanismsFunctionalTest extends SimTestBase {
       // Keep DS packets fresh and feed the Phoenix enable watchdog directly: TalonFX
       // outputs silently neutral (duty cycle 0) if either starves for ~100 ms real time.
       DriverStationSim.notifyNewData();
-      Unmanaged.feedEnable(200);
+      // Feed the Phoenix enable watchdog only while actually enabled — feeding it
+      // when disabled would override the DS-disable neutral and keep the last
+      // control request running.
+      if (edu.wpi.first.wpilibj.DriverStation.isEnabled()) {
+        Unmanaged.feedEnable(200);
+      }
       try {
         Thread.sleep(4); // the simulated TalonFX processes controls on a real-time thread
       } catch (InterruptedException e) {
@@ -225,6 +230,37 @@ public class MechanismsFunctionalTest extends SimTestBase {
           "fused-CANcoder turret should settle at the commanded angle");
     } finally {
       turret.close();
+    }
+  }
+
+  @Test
+  public void clearGoalOnDisableDropsTheGoal() {
+    // Same elevator as ExampleElevator but with clearGoalOnDisable = true: after a
+    // disable/enable cycle the mechanism must NOT resume driving to the stale goal.
+    var s = new org.frc5010.common.mechanisms.Elevator.Settings();
+    s.name = "ClearGoalElevator";
+    s.canId = 36;
+    s.startingHeight = Meters.of(0.1);
+    s.kG = edu.wpi.first.units.Units.Volts.of(0.19);
+    s.clearGoalOnDisable = true;
+    var elevator = new org.frc5010.common.mechanisms.Elevator(s);
+    try {
+      scheduleAndRun(elevator.goToHeight(Meters.of(0.8)), 1.0); // climbing
+      assertTrue(elevator.getHeight().in(Meters) > 0.2,
+          "elevator should be climbing before the disable");
+
+      // Disable and let the carriage coast to rest (brake mode), then measure.
+      disable();
+      runScheduledFor(0.5);
+      double afterDisable = elevator.getHeight().in(Meters);
+
+      enableTeleop();
+      runScheduledFor(1.5);
+
+      assertTrue(elevator.getHeight().in(Meters) <= afterDisable + 0.02,
+          "with clearGoalOnDisable, re-enabling must not resume driving to the stale goal");
+    } finally {
+      elevator.close();
     }
   }
 

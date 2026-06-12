@@ -24,7 +24,7 @@ import org.littletonrobotics.junction.Logger;
  * units (meters or <em>rotations</em>, matching SysId conventions); the base converts
  * consistently in both directions.
  */
-public abstract class SingleDofMechanism extends SubsystemBase {
+public abstract class SingleDofMechanism extends SubsystemBase implements AutoCloseable {
 
   /** Builds a {@link MechanismLqr} from weights in native units. */
   protected interface LqrFactory {
@@ -166,9 +166,13 @@ public abstract class SingleDofMechanism extends SubsystemBase {
     }
     wasEnabled = enabled;
 
-    if (!enabled || mode == OutputMode.VOLTAGE) {
-      // Disabled (Talon neutrals itself) or an external command owns the output.
+    if (!enabled) {
+      // Explicit neutral: real hardware would self-neutral, but the simulated Talon
+      // keeps executing its last request as long as DS packets stay fresh.
       resetProfileToCurrent();
+      io.stop();
+    } else if (mode == OutputMode.VOLTAGE) {
+      resetProfileToCurrent(); // an external command owns the output
     } else if (mode == OutputMode.GOAL) {
       if (lqr != null) {
         profileState = profile.calculate(0.02, profileState,
@@ -228,6 +232,7 @@ public abstract class SingleDofMechanism extends SubsystemBase {
   }
 
   /** Stops control and frees the CAN devices. For unit tests. */
+  @Override
   public void close() {
     io.close();
   }

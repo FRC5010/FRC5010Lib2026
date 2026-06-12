@@ -42,7 +42,7 @@ import org.littletonrobotics.junction.Logger;
  * <p>SIM uses an independent {@link SingleJointedArmSim} per joint (gravity on each;
  * joint coupling is not modeled).
  */
-public class DoubleJointedArm extends SubsystemBase {
+public class DoubleJointedArm extends SubsystemBase implements AutoCloseable {
 
   /** Parameters for one joint of the arm. */
   public static class JointSettings {
@@ -78,6 +78,8 @@ public class DoubleJointedArm extends SubsystemBase {
     public String name = "DoubleJointedArm";
     /** Motor physics model (both joints). */
     public DCMotor motorModel = DCMotor.getKrakenX60(1);
+    /** Drop the goals when the robot is disabled (stay put on re-enable). */
+    public boolean clearGoalOnDisable = false;
     /** Stator current limit (both joints). */
     public Current statorCurrentLimit = Amps.of(40);
     /** Shoulder joint (attached to the robot). */
@@ -98,6 +100,7 @@ public class DoubleJointedArm extends SubsystemBase {
   private final edu.wpi.first.wpilibj.Alert upperDisconnectedAlert;
 
   private boolean hasGoal = false;
+  private boolean wasEnabled = false;
   private double lowerGoalRot;
   private double upperGoalRot;
 
@@ -216,7 +219,18 @@ public class DoubleJointedArm extends SubsystemBase {
       upperIo.setPidGains(upperGains.kP(), upperGains.kI(), upperGains.kD());
     }
 
-    if (DriverStation.isEnabled() && hasGoal) {
+    boolean enabled = DriverStation.isEnabled();
+    if (!enabled && wasEnabled && settings.clearGoalOnDisable) {
+      hasGoal = false;
+    }
+    wasEnabled = enabled;
+
+    if (!enabled) {
+      // Explicit neutral — the simulated Talon doesn't self-neutral while DS packets
+      // stay fresh.
+      lowerIo.stop();
+      upperIo.stop();
+    } else if (hasGoal) {
       lowerIo.runPosition(lowerGoalRot);
       upperIo.runPosition(upperGoalRot);
     }
@@ -266,6 +280,7 @@ public class DoubleJointedArm extends SubsystemBase {
   }
 
   /** Stops control and frees both CAN devices. For unit tests. */
+  @Override
   public void close() {
     lowerIo.close();
     upperIo.close();
