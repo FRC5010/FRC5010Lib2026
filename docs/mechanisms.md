@@ -112,6 +112,12 @@ Commands: `goToHeight(Distance)` / `goToAngle(Angle)` / `goToSpeed(AngularVeloci
   sensor to `minHeight`. `homingCurrentThreshold` must sit well below
   `statorCurrentLimit` (the Talon's limiter caps stall current — a threshold at the
   limit never triggers; in sim the observable ceiling is ~0.75 × the limit).
+- `enableFoc` (default **true**) — all control requests run with FOC commutation
+  (~15% more torque, smoother low-speed control). Requires Phoenix Pro on the device;
+  unlicensed devices fall back to non-FOC and raise an UnlicensedFeatureInUse fault —
+  non-Pro teams set it false. This is FOC *commutation* on the voltage-based requests
+  (same gains/units as before); torque-current *control* (gains in amps) is a possible
+  future option.
 - `clearGoalOnDisable` — drop the goal when disabled so the mechanism stays put on
   re-enable instead of driving back to a stale target (default false = resume).
 - Every motor gets a WPILib `Alert` ("<name> TalonFX disconnected") driven by the

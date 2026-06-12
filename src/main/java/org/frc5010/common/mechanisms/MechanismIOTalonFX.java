@@ -82,6 +82,13 @@ public class MechanismIOTalonFX implements MechanismIO {
     public int cancoderId = -1;
     /** CANcoder magnet offset, rotations (reading at the mechanism's zero). */
     public double cancoderOffsetRot = 0;
+    /**
+     * Run all control requests with FOC commutation (~15% more torque, smoother
+     * low-speed control). Requires Phoenix Pro licensing on the device; unlicensed
+     * devices fall back to non-FOC and raise an UnlicensedFeatureInUse fault.
+     * Default true — set false for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** CAN ID of a follower TalonFX (two-motor gearbox); −1 = none. */
     public int followerCanId = -1;
     /** True if the follower is mounted opposing the lead motor. */
@@ -98,10 +105,10 @@ public class MechanismIOTalonFX implements MechanismIO {
   private final StatusSignal<Voltage> appliedVolts;
   private final StatusSignal<Current> statorCurrent;
 
-  private final VoltageOut voltageRequest = new VoltageOut(0);
-  private final DutyCycleOut dutyCycleRequest = new DutyCycleOut(0);
-  private final MotionMagicVoltage positionRequest = new MotionMagicVoltage(0);
-  private final VelocityVoltage velocityRequest = new VelocityVoltage(0);
+  private final VoltageOut voltageRequest;
+  private final DutyCycleOut dutyCycleRequest;
+  private final MotionMagicVoltage positionRequest;
+  private final VelocityVoltage velocityRequest;
   private final NeutralOut neutralRequest = new NeutralOut();
 
   private final TalonFXConfiguration talonConfig;
@@ -114,6 +121,10 @@ public class MechanismIOTalonFX implements MechanismIO {
   public MechanismIOTalonFX(Config config) {
     this.config = config;
     talon = new TalonFX(config.canId);
+    voltageRequest = new VoltageOut(0).withEnableFOC(config.enableFoc);
+    dutyCycleRequest = new DutyCycleOut(0).withEnableFOC(config.enableFoc);
+    positionRequest = new MotionMagicVoltage(0).withEnableFOC(config.enableFoc);
+    velocityRequest = new VelocityVoltage(0).withEnableFOC(config.enableFoc);
 
     talonConfig = new TalonFXConfiguration();
     if (config.cancoderId >= 0) {

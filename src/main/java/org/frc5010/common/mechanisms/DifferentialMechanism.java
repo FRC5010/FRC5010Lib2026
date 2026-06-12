@@ -79,6 +79,12 @@ public class DifferentialMechanism extends SubsystemBase implements AutoCloseabl
     public AngularAcceleration maxAcceleration = DegreesPerSecondPerSecond.of(360);
     /** Drop the goals when the robot is disabled (stay put on re-enable). */
     public boolean clearGoalOnDisable = false;
+    /**
+     * Use FOC commutation on all control requests (~15% more torque). Requires
+     * Phoenix Pro; unlicensed devices fall back to non-FOC with a fault. Set false
+     * for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** Stator current limit (both motors). */
     public Current statorCurrentLimit = Amps.of(40);
   }
@@ -138,6 +144,7 @@ public class DifferentialMechanism extends SubsystemBase implements AutoCloseabl
   private MechanismIO motorIo(int canId, double startingRot) {
     var config = new MechanismIOTalonFX.Config();
     config.canId = canId;
+    config.enableFoc = settings.enableFoc;
     config.gearing = product(settings.gearReductionStages);
     config.statorCurrentLimitAmps = settings.statorCurrentLimit.in(Amps);
     config.startingPositionRot = startingRot;

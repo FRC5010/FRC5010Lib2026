@@ -80,6 +80,12 @@ public class DoubleJointedArm extends SubsystemBase implements AutoCloseable {
     public DCMotor motorModel = DCMotor.getKrakenX60(1);
     /** Drop the goals when the robot is disabled (stay put on re-enable). */
     public boolean clearGoalOnDisable = false;
+    /**
+     * Use FOC commutation on all control requests (~15% more torque). Requires
+     * Phoenix Pro; unlicensed devices fall back to non-FOC with a fault. Set false
+     * for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** Stator current limit (both joints). */
     public Current statorCurrentLimit = Amps.of(40);
     /** Shoulder joint (attached to the robot). */
@@ -143,6 +149,7 @@ public class DoubleJointedArm extends SubsystemBase implements AutoCloseable {
   private MechanismIO jointIo(JointSettings joint) {
     var config = new MechanismIOTalonFX.Config();
     config.canId = joint.canId;
+    config.enableFoc = settings.enableFoc;
     config.gearing = product(joint.gearReductionStages);
     config.statorCurrentLimitAmps = settings.statorCurrentLimit.in(Amps);
     config.softLimitLowRot = joint.minAngle.in(Radians) / (2 * Math.PI);

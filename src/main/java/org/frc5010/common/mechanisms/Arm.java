@@ -86,6 +86,12 @@ public class Arm extends SingleDofMechanism {
     public AngularAcceleration maxAcceleration = DegreesPerSecondPerSecond.of(360);
     /** Gravity feedforward (volts to hold the arm horizontal) — from SysId or sim ramp. */
     public Voltage kG = Volts.of(0);
+    /**
+     * Use FOC commutation on all control requests (~15% more torque). Requires
+     * Phoenix Pro; unlicensed devices fall back to non-FOC with a fault. Set false
+     * for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** Stator current limit. */
     public Current statorCurrentLimit = Amps.of(40);
     /** Drop the goal when the robot is disabled (stay put on re-enable). */
@@ -174,6 +180,7 @@ public class Arm extends SingleDofMechanism {
 
     var config = new MechanismIOTalonFX.Config();
     config.canId = settings.canId;
+    config.enableFoc = settings.enableFoc;
     config.followerCanId = settings.followerCanId;
     config.followerOpposed = settings.followerOpposed;
     config.cancoderId = settings.cancoderId;

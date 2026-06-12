@@ -81,6 +81,12 @@ public class Pivot extends SingleDofMechanism {
     public AngularVelocity maxVelocity = DegreesPerSecond.of(360);
     /** Motion profile acceleration. */
     public AngularAcceleration maxAcceleration = DegreesPerSecondPerSecond.of(720);
+    /**
+     * Use FOC commutation on all control requests (~15% more torque). Requires
+     * Phoenix Pro; unlicensed devices fall back to non-FOC with a fault. Set false
+     * for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** Stator current limit. */
     public Current statorCurrentLimit = Amps.of(40);
     /** Drop the goal when the robot is disabled (stay put on re-enable). */
@@ -166,6 +172,7 @@ public class Pivot extends SingleDofMechanism {
 
     var config = new MechanismIOTalonFX.Config();
     config.canId = settings.canId;
+    config.enableFoc = settings.enableFoc;
     config.followerCanId = settings.followerCanId;
     config.followerOpposed = settings.followerOpposed;
     config.cancoderId = settings.cancoderId;

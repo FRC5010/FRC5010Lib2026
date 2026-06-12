@@ -79,6 +79,12 @@ public class Elevator extends SingleDofMechanism {
     public LinearAcceleration maxAcceleration = MetersPerSecondPerSecond.of(2.0);
     /** Gravity feedforward (volts to hold the carriage) — from SysId or sim ramp. */
     public Voltage kG = Volts.of(0);
+    /**
+     * Use FOC commutation on all control requests (~15% more torque). Requires
+     * Phoenix Pro; unlicensed devices fall back to non-FOC with a fault. Set false
+     * for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** Stator current limit. */
     public Current statorCurrentLimit = Amps.of(40);
     /** Drop the goal when the robot is disabled (stay put on re-enable). */
@@ -93,7 +99,7 @@ public class Elevator extends SingleDofMechanism {
      * threshold at/above the limit never triggers (in sim the observable ceiling is
      * ~0.75 × the limit because Phoenix and WPILib use slightly different motor models).
      */
-    public Current homingCurrentThreshold = Amps.of(25);
+    public Current homingCurrentThreshold = Amps.of(20);
 
     // --- LQR weights (live-tunable; these are the initial values) ---
     /**
@@ -182,6 +188,7 @@ public class Elevator extends SingleDofMechanism {
 
     var config = new MechanismIOTalonFX.Config();
     config.canId = settings.canId;
+    config.enableFoc = settings.enableFoc;
     config.followerCanId = settings.followerCanId;
     config.followerOpposed = settings.followerOpposed;
     config.gearing = gearing;

@@ -104,6 +104,12 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     /** Measured kA from a SysId run, volts per rotation/s². See {@link #characterizedKv}. */
     public double characterizedKa = 0;
 
+    /**
+     * Use FOC commutation on all control requests (~15% more torque). Requires
+     * Phoenix Pro; unlicensed devices fall back to non-FOC with a fault. Set false
+     * for non-Pro teams.
+     */
+    public boolean enableFoc = true;
     /** Stator current limit. */
     public Current statorCurrentLimit = Amps.of(60);
   }
@@ -138,6 +144,7 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
 
     var config = new MechanismIOTalonFX.Config();
     config.canId = settings.canId;
+    config.enableFoc = settings.enableFoc;
     config.followerCanId = settings.followerCanId;
     config.followerOpposed = settings.followerOpposed;
     config.gearing = gearing;
