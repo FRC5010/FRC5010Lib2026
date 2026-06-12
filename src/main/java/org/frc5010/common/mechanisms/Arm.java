@@ -97,7 +97,7 @@ public class Arm extends SingleDofMechanism {
     /** Drop the goal when the robot is disabled (stay put on re-enable). */
     public boolean clearGoalOnDisable = false;
 
-    // --- LQR weights (live-tunable in ROTATIONS; these are the initial values) ---
+    // --- LQR weights (live-tunable in DEGREES; these are the initial values) ---
     /** Position error tolerance. Smaller = more aggressive. */
     public Angle qelmsPosition = Degrees.of(1.5);
     /** Velocity error tolerance. Smaller = more aggressive. */
@@ -204,7 +204,7 @@ public class Arm extends SingleDofMechanism {
     var params = new BaseParams();
     params.name = settings.name;
     params.nativePerRot = 2 * Math.PI; // radians per mechanism rotation
-    params.displayPerNative = 1.0 / (2 * Math.PI); // tunables displayed in rotations
+    params.displayPerNative = 180.0 / Math.PI; // tunables displayed in degrees
     params.io = switch (RobotMode.get()) {
       case REPLAY -> new MechanismIO() {};
       case SIM -> new MechanismIOTalonFXSim(config, armSim(settings, gearing));
@@ -225,8 +225,8 @@ public class Arm extends SingleDofMechanism {
             settings.characterizedKv / (2 * Math.PI),
             settings.characterizedKa / (2 * Math.PI))
         : null;
-    params.initialQelmsPosDisplay = settings.qelmsPosition.in(Rotations);
-    params.initialQelmsVelDisplay = settings.qelmsVelocity.in(RotationsPerSecond);
+    params.initialQelmsPosDisplay = settings.qelmsPosition.in(Degrees);
+    params.initialQelmsVelDisplay = settings.qelmsVelocity.in(DegreesPerSecond);
     params.initialRelmsVolts = settings.relms.in(Volts);
     params.kP = settings.kP;
     params.kI = settings.kI;

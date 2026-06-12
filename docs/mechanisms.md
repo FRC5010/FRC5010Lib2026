@@ -129,8 +129,8 @@ LQR is tuned with *physical tolerances*, not abstract gains:
 
 | Weight | Meaning | Default |
 |---|---|---|
-| `qelmsPosition` | position error you tolerate (m or rot). Smaller = more aggressive | 2 in / 1.5° |
-| `qelmsVelocity` | velocity error you tolerate (m/s or rot/s) | 0.5 m/s / 20°/s |
+| `qelmsPosition` | position error you tolerate (meters or degrees). Smaller = more aggressive | 2 in / 1.5° |
+| `qelmsVelocity` | velocity error you tolerate (m/s, deg/s, or RPM for flywheels) | 0.5 m/s / 20°/s |
 | `relms` | control effort you allow (volts). Smaller = gentler | 12 V |
 
 All three are live-tunable under `/Tuning/<name>/lqr_*`; on change the regulator is

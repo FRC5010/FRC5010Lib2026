@@ -21,8 +21,8 @@ import org.littletonrobotics.junction.Logger;
  * <p><b>Units:</b> "native" is the controller's unit — meters for elevators, radians
  * for arms/pivots. The IO boundary is mechanism rotations
  * (native = rotations × {@code nativePerRot}). Tunables are published in "display"
- * units (meters or <em>rotations</em>, matching SysId conventions); the base converts
- * consistently in both directions.
+ * units — meters for elevators, <em>degrees</em> for arms/pivots — and the base
+ * converts consistently in both directions.
  */
 public abstract class SingleDofMechanism extends SubsystemBase implements AutoCloseable {
 
@@ -55,7 +55,7 @@ public abstract class SingleDofMechanism extends SubsystemBase implements AutoCl
     public MechanismIO io;
     /** Native units per mechanism rotation (drum circumference, or 2π for radians). */
     public double nativePerRot;
-    /** Display (tunable) units per native unit — 1 for meters, 1/2π for rotations. */
+    /** Display (tunable) units per native unit — 1 for meters, 180/π for degrees. */
     public double displayPerNative;
     /** Trapezoid profile constraints in native units (LQR style only). */
     public TrapezoidProfile.Constraints profileConstraints;

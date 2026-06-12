@@ -21,8 +21,8 @@ optimal gains from the plant model (motor, gearing, mass/MOI):
 
 | NT entry | Meaning | Move it when... |
 |---|---|---|
-| `lqr_qelmsPosition` | allowed position error (m or rotations) | too sluggish → smaller; oscillates → larger |
-| `lqr_qelmsVelocity` | allowed velocity error (m/s or rot/s) | overshoot/ringing → smaller (more damping) |
+| `lqr_qelmsPosition` | allowed position error (meters or degrees) | too sluggish → smaller; oscillates → larger |
+| `lqr_qelmsVelocity` | allowed velocity error (m/s, deg/s, or RPM for flywheels) | overshoot/ringing → smaller (more damping) |
 | `lqr_relms` | allowed control effort, volts | violent/brownouts → smaller; weak → keep 12 |
 
 Procedure (sim: `./gradlew simulateJava`; real robot: tethered, mechanism clear):

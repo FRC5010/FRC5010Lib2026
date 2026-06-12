@@ -64,7 +64,7 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     /** Flywheel mass. */
     public Mass mass = Kilograms.of(1.5);
 
-    // --- LQR weights (live-tunable; these are the initial values) ---
+    // --- LQR weights (live-tunable in RPM; these are the initial values) ---
     /** Velocity error tolerance. Smaller = more aggressive. */
     public AngularVelocity qelmsVelocity = RadiansPerSecond.of(8);
     /** Control effort tolerance. Smaller = gentler. 12 V = full battery. */
@@ -170,7 +170,7 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     lqrTunables = useLqr
         ? new LqrTunables(settings.name,
             0, // position weight unused for flywheel LQR
-            settings.qelmsVelocity.in(edu.wpi.first.units.Units.RotationsPerSecond),
+            settings.qelmsVelocity.in(RPM),
             settings.relms.in(Volts))
         : null;
     pidGains = useLqr ? null
@@ -267,8 +267,8 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     disconnectedAlert.set(!inputs.connected);
 
     if (lqrTunables != null && lqrTunables.hasChanged()) {
-      // Tunables are published in rotations/s; the loop runs in rad/s.
-      lqr = buildLqr(lqrTunables.qelmsVelocity() * 2 * Math.PI, lqrTunables.relms());
+      // Tunables are published in RPM (the natural shooter unit); the loop runs in rad/s.
+      lqr = buildLqr(lqrTunables.qelmsVelocity() * 2 * Math.PI / 60.0, lqrTunables.relms());
       lqr.reset(0, getVelocityRadPerSec());
     }
     if (pidGains != null && pidGains.hasChanged()) {
