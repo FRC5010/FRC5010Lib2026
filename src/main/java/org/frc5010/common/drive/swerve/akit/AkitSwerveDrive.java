@@ -412,6 +412,15 @@ public class AkitSwerveDrive extends SubsystemBase {
   }
 
   /**
+   * Returns the raw gyro heading (yaw) as accumulated from the gyro / odometry
+   * integration — the heading the gyro reports, which can diverge from
+   * {@link #getRotation()} once vision corrections nudge the pose estimate.
+   */
+  public Rotation2d getGyroRotation() {
+    return rawGyroRotation;
+  }
+
+  /**
    * Returns the true physics-body pose from the IronMaple simulation, or empty when not running
    * with physics (buildWithoutPhysics, REAL, or REPLAY mode).
    *

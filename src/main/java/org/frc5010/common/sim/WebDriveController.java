@@ -59,8 +59,9 @@ public class WebDriveController {
     // Live swerve steer angles (rad), snapshotted on the robot thread each cycle.
     private final AtomicReference<double[]> swerveAnglesBuf = new AtomicReference<>(new double[0]);
 
-    // Written by robot thread, read by HTTP thread (state endpoint)
-    private final AtomicReference<double[]> poseBuf = new AtomicReference<>(new double[3]);
+    // Written by robot thread, read by HTTP thread (state endpoint).
+    // Layout: [x, y, poseHeadingRad, gyroYawRad].
+    private final AtomicReference<double[]> poseBuf = new AtomicReference<>(new double[4]);
     private final AtomicBoolean enabledBuf = new AtomicBoolean(false);
     private final AtomicReference<String> allianceBuf = new AtomicReference<>("Blue");
 
@@ -167,7 +168,8 @@ public class WebDriveController {
         // an autonomous (or any other) command owns the drive subsystem. Without this, the web
         // field freezes for the whole duration of an auto routine.
         Pose2d pose = drive.getPose();
-        poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians()});
+        poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians(),
+            drive.getGyroRotation().getRadians()});
 
         // Snapshot the swerve steer angles for the 3D robot view (same rationale as the
         // pose: read drive state on the robot thread, serve from the buffer on HTTP threads).
@@ -428,14 +430,14 @@ public class WebDriveController {
         if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(204, -1); return; }
         double[] p  = poseBuf.get();
         String json = String.format(
-            "{\"x\":%.4f,\"y\":%.4f,\"headingRad\":%.4f," +
+            "{\"x\":%.4f,\"y\":%.4f,\"headingRad\":%.4f,\"gyroRad\":%.4f," +
             "\"maxLinear\":%.4f,\"maxAngular\":%.4f," +
             "\"fieldWidth\":16.540988,\"fieldHeight\":8.21," +
             "\"enabled\":%b,\"alliance\":\"%s\",\"connected\":%b," +
             "\"mode\":\"%s\",\"selectedAuto\":\"%s\"," +
             "\"heldFuel\":%d,\"intakeExtended\":%b,\"scoredFuel\":%d," +
             "\"leds\":%s}",
-            p[0], p[1], p[2], maxLinearMps, maxAngularRps,
+            p[0], p[1], p[2], p[3], maxLinearMps, maxAngularRps,
             enabledBuf.get(), allianceBuf.get(), isConnected(),
             modeBuf.get(), jsonEscape(selectedAutoBuf.get()),
             heldFuelSupplier.getAsInt(), intakeExtendedSupplier.getAsBoolean(), scoredFuelSupplier.getAsInt(),

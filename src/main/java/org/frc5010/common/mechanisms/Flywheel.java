@@ -324,12 +324,23 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
 
     var mount = settings.visualPose3d;
     double radius = settings.diameter.in(Meters) / 2;
-    var segments = new java.util.ArrayList<>(MechanismVisuals3d.planarCircle(
-        mount, 0, 0, radius, 12, "rim", "#2e6e40", 1));
+    // Speedometer dial: 0 speed points straight down, full speed points up. Positive
+    // speed sweeps the needle CCW (up the right side), negative sweeps CW (up the left),
+    // so sign and magnitude both read at a glance. Normalized to wheel free speed.
+    double maxSpeed = settings.motorModel.freeSpeedRadPerSec / gearing;
+    double frac = maxSpeed > 1e-6
+        ? Math.max(-1, Math.min(1, getVelocityRadPerSec() / maxSpeed)) : 0;
+    double needleRad = -Math.PI / 2 + frac * Math.PI;
     var center = MechanismVisuals3d.planarPoint(mount, 0, 0);
-    segments.add(new MechanismVisuals3d.Segment("spoke", center,
-        MechanismVisuals3d.planarOffset(mount, center, inputs.positionRot * 2 * Math.PI, radius),
-        "#7ee787", 3)); // spins with the wheel — visible speed cue
+    var segments = new java.util.ArrayList<>(MechanismVisuals3d.planarCircle(
+        mount, 0, 0, radius, 20, "dial", "#2e6e40", 1));
+    segments.add(new MechanismVisuals3d.Segment("zero", // 0-speed mark at the bottom
+        MechanismVisuals3d.planarOffset(mount, center, -Math.PI / 2, radius * 0.8),
+        MechanismVisuals3d.planarOffset(mount, center, -Math.PI / 2, radius),
+        "#8b949e", 2));
+    segments.add(new MechanismVisuals3d.Segment("needle", center,
+        MechanismVisuals3d.planarOffset(mount, center, needleRad, radius * 0.92),
+        "#7ee787", 3));
     MechanismVisuals3d.publish(settings.name, segments);
   }
 

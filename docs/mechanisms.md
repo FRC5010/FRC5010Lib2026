@@ -149,8 +149,11 @@ z up, meters from robot center at floor level):
     the common cases.
 
 Every cycle each mechanism publishes its current 3D line segments (current state in
-its type color, goal ghost in white) into the `MechanismVisuals3d` registry. Two
-renderers consume them:
+its type color, goal ghost in white) into the `MechanismVisuals3d` registry. A
+flywheel instead renders as a **speedometer dial**: the needle points straight down at
+zero and sweeps up as it spins — CCW for positive speed, CW for negative — normalized
+to the wheel's free speed, so sign and magnitude read at a glance. Two renderers
+consume the registry:
 
 1. **Web UI isometric panel** (`-PwebUI`) — the bottom-right overlay on the field
    page draws the chassis box, the swerve wheels (live steer angle), and all mechanism
