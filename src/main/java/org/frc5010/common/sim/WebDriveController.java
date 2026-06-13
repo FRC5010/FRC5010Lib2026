@@ -56,8 +56,9 @@ public class WebDriveController {
     private final double wheelRadiusM;
     private final double[] moduleX; // robot-frame module positions, x forward
     private final double[] moduleY; // robot-frame module positions, y left
-    // Live swerve steer angles (rad), snapshotted on the robot thread each cycle.
-    private final AtomicReference<double[]> swerveAnglesBuf = new AtomicReference<>(new double[0]);
+    // Live swerve module state for the 3D view: [angle0, speedFrac0, angle1, ...],
+    // snapshotted on the robot thread each cycle (speedFrac = signed speed ÷ max speed).
+    private final AtomicReference<double[]> swerveStateBuf = new AtomicReference<>(new double[0]);
 
     // Written by robot thread, read by HTTP thread (state endpoint).
     // Layout: [x, y, poseHeadingRad, gyroYawRad].
@@ -171,14 +172,16 @@ public class WebDriveController {
         poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians(),
             drive.getGyroRotation().getRadians()});
 
-        // Snapshot the swerve steer angles for the 3D robot view (same rationale as the
-        // pose: read drive state on the robot thread, serve from the buffer on HTTP threads).
+        // Snapshot the swerve module states (steer angle + normalized speed) for the 3D
+        // robot view — same rationale as the pose: read drive state on the robot thread,
+        // serve from the buffer on HTTP threads.
         var states = drive.getModuleStates();
-        double[] angles = new double[states.length];
+        double[] swerve = new double[states.length * 2];
         for (int i = 0; i < states.length; i++) {
-            angles[i] = states[i].angle.getRadians();
+            swerve[2 * i] = states[i].angle.getRadians();
+            swerve[2 * i + 1] = clamp(states[i].speedMetersPerSecond / maxLinearMps);
         }
-        swerveAnglesBuf.set(angles);
+        swerveStateBuf.set(swerve);
 
         // Snapshot the LED colours every cycle for the same reason as the pose above:
         // this is the only per-cycle hook that runs in ALL robot states (gotcha 11).
@@ -372,17 +375,18 @@ public class WebDriveController {
         addCors(ex);
         if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(204, -1); return; }
         if (!"GET".equalsIgnoreCase(ex.getRequestMethod()))    { ex.sendResponseHeaders(405, -1); return; }
-        double[] angles = swerveAnglesBuf.get();
+        double[] swerve = swerveStateBuf.get();
         StringBuilder sb = new StringBuilder(512);
         sb.append("{\"chassis\":{\"length\":").append(fmt(chassisLengthM))
           .append(",\"width\":").append(fmt(chassisWidthM))
           .append(",\"height\":0.15,\"wheelRadius\":").append(fmt(wheelRadiusM))
           .append("},\"swerve\":[");
-        int n = Math.min(angles.length, moduleX.length);
+        int n = Math.min(swerve.length / 2, moduleX.length);
         for (int i = 0; i < n; i++) {
             if (i > 0) sb.append(',');
             sb.append('[').append(fmt(moduleX[i])).append(',')
-              .append(fmt(moduleY[i])).append(',').append(fmt(angles[i])).append(']');
+              .append(fmt(moduleY[i])).append(',').append(fmt(swerve[2 * i]))
+              .append(',').append(fmt(swerve[2 * i + 1])).append(']');
         }
         sb.append("],\"mechanisms\":")
           .append(org.frc5010.common.mechanisms.MechanismVisuals3d.mechanismsArrayJson())

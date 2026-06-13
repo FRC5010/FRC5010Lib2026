@@ -582,19 +582,37 @@ function drawMech3d() {
   const bottom = [[hx, hy, 0], [hx, -hy, 0], [-hx, -hy, 0], [-hx, hy, 0]];
   const top = bottom.map(p => [p[0], p[1], ch.height]);
 
-  // Each swerve module: a short line through the module position (floor level) along
-  // its steer angle, so the wheels visibly point where they're steered.
+  // Each swerve module: a line through the module position (floor level) along its
+  // steer angle, whose length grows with the drive speed — so both the steer direction
+  // and how fast the wheel is rolling read at a glance. Payload: [cx, cy, angle, frac]
+  // where frac is the signed speed as a fraction of the drivetrain's max speed.
   const wr = (ch.wheelRadius || 0.05);
   const wheels = sw.map(m => {
-    const [cx, cy, ang] = m;
-    const dx = Math.cos(ang) * wr, dy = Math.sin(ang) * wr;
+    const [cx, cy, ang, frac] = m;
+    const half = wr * 0.5 + Math.abs(frac || 0) * ch.length * 0.35;
+    const dx = Math.cos(ang) * half, dy = Math.sin(ang) * half;
     return [[cx - dx, cy - dy, 0], [cx + dx, cy + dy, 0]];
   });
+
+  // Gyro compass on the floor: a needle pointing toward field-forward in the robot
+  // frame (state.gyroRad), so it sweeps around the chassis as the robot's heading
+  // changes — the robot-relative orientation indicator, here on the 3D display.
+  const gyro = (state.gyroRad ?? 0);
+  const gyroR = Math.max(hx, hy) * 1.3;
+  const gdx = Math.cos(gyro) * gyroR, gdy = -Math.sin(gyro) * gyroR; // field +X in robot frame
+  const gyroRing = [];
+  for (let k = 0; k < 24; k++) {
+    const a0 = 2 * Math.PI * k / 24, a1 = 2 * Math.PI * (k + 1) / 24;
+    gyroRing.push([[gyroR * Math.cos(a0), gyroR * Math.sin(a0), 0],
+                   [gyroR * Math.cos(a1), gyroR * Math.sin(a1), 0]]);
+  }
 
   // Auto-fit: project every point and fit the bounds into the canvas with a margin,
   // so the view stays framed at any orbit angle and mechanism extension.
   const pts = [...bottom, ...top].map(isoUV);
   for (const w of wheels) { pts.push(isoUV(w[0])); pts.push(isoUV(w[1])); }
+  pts.push(isoUV([gdx, gdy, 0]));
+  for (let k = 0; k < gyroRing.length; k += 6) pts.push(isoUV(gyroRing[k][0]));
   for (const m of mechs) {
     for (const s of m.segments) { pts.push(isoUV(s.a)); pts.push(isoUV(s.b)); }
   }
@@ -626,7 +644,12 @@ function drawMech3d() {
   }
   line(top[0], top[1], '#3fb950', 1.5); // front edge (robot +X)
 
-  // Swerve wheels (light grey) — drawn on the floor at each module, steered live.
+  // Gyro compass (cyan): ring on the floor + needle toward field-forward.
+  for (const seg of gyroRing) line(seg[0], seg[1], 'rgba(34,211,238,0.35)', 1);
+  line([0, 0, 0], [gdx, gdy, 0], '#22d3ee', 2.5);
+
+  // Swerve wheels (light grey) — drawn on the floor at each module, steered live, with
+  // length growing as the wheel rolls faster.
   for (const w of wheels) line(w[0], w[1], '#cdd9e5', 3);
 
   // Mechanism segments, exactly as the robot published them this cycle.
@@ -1016,24 +1039,6 @@ function drawField() {
   ctx.closePath();
   ctx.fill();
 
-  ctx.restore();
-
-  // Gyro orientation indicator — a cyan heading ring + needle centred on the robot,
-  // pointing the way the GYRO reports (state.gyroRad), independent of the pose-based
-  // body arrow above. They align normally; a divergence (e.g. under vision correction)
-  // shows up here. Drawn in the field's horizontal plane.
-  const gyroRad = (state.gyroRad ?? state.headingRad);
-  const gr = robotPx * 0.95;
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(fieldAngle(gyroRad));
-  ctx.strokeStyle = 'rgba(34,211,238,0.9)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(0, 0, gr, 0, 2 * Math.PI); ctx.stroke();      // heading ring
-  ctx.beginPath();
-  ctx.moveTo(0, 0); ctx.lineTo(0, -gr);                                   // needle (front = up)
-  ctx.lineTo(-4, -gr + 8); ctx.moveTo(0, -gr); ctx.lineTo(4, -gr + 8);    // arrowhead
-  ctx.stroke();
   ctx.restore();
 
   ctx.restore();   // field-render offset (letterbox)

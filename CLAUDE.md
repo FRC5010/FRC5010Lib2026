@@ -141,6 +141,7 @@ Several real bugs passed the whole test suite and only surfaced when the sim was
 | Swerve config record | `src/main/java/org/frc5010/common/drive/swerve/SwerveConstants.java` |
 | Factory (build/buildWithoutPhysics) | `src/main/java/org/frc5010/common/drive/swerve/SwerveFactory.java` |
 | Subsystem (periodic, simulationPeriodic) | `src/main/java/org/frc5010/common/drive/swerve/akit/AkitSwerveDrive.java` |
+| Swerve Mechanism2d view (wheel arrows + gyro needle, SmartDashboard) | `src/main/java/org/frc5010/common/drive/swerve/akit/SwerveVisuals2d.java` |
 | Base robot container (keyboard drive, auto, alliance pose) | `src/main/java/org/frc5010/common/profiles/SwerveRobotContainer.java` |
 | Visual auto test sequence | `src/main/java/org/frc5010/common/sim/SwerveVisualTest.java` |
 | Joystick axis transform pipeline | `src/main/java/org/frc5010/common/input/JoystickAxis.java` |

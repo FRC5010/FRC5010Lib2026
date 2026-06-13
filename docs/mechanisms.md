@@ -156,11 +156,14 @@ to the wheel's free speed, so sign and magnitude read at a glance. Two renderers
 consume the registry:
 
 1. **Web UI isometric panel** (`-PwebUI`) — the bottom-right overlay on the field
-   page draws the chassis box, the swerve wheels (live steer angle), and all mechanism
+   page draws the chassis box, the swerve wheels (steered live, line length growing
+   with drive speed), a cyan gyro-heading compass on the floor, and all mechanism
    segments; drag horizontally to orbit the view, and click the title to collapse it
    (collapsing stops the poll/draw entirely, handy on narrow screens). Backed by
    `GET /api/mechanisms3d`. The chassis box and wheels are sized from the drivetrain's
-   bumper dimensions and module layout automatically — no configuration needed.
+   bumper dimensions and module layout automatically — no configuration needed. (The
+   drivetrain also publishes a `SwerveDrive` Mechanism2d to SmartDashboard for Glass /
+   AdvantageScope — see [docs/simulation.md](simulation.md).)
 2. **AdvantageScope 3D** — each publish also logs `Pose3d[]` under
    **Mechanisms3d/\<name\>** (one pose per segment: position at the segment start,
    X-axis along the segment), ready to attach as articulated components on the 3D
