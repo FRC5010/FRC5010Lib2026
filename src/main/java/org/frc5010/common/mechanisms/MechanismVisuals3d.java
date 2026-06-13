@@ -48,6 +48,14 @@ public final class MechanismVisuals3d {
   public static final Rotation3d YAW_PLANE = new Rotation3d(-Math.PI / 2, 0, 0);
 
   /**
+   * Mount rotation that stands the mechanism's working plane up in the robot's Y-Z
+   * plane: the mechanism angle sweeps side-to-side (about the robot's fore-aft axis),
+   * 0° = robot-left, positive toward up. Use for side-mounted deploys / arms that
+   * swing left-right rather than fore-aft.
+   */
+  public static final Rotation3d ROLL_PLANE = new Rotation3d(0, 0, Math.PI / 2);
+
+  /**
    * One drawn line segment in the robot frame.
    *
    * @param label    segment role within the mechanism (e.g. "carriage", "goal")
@@ -69,8 +77,9 @@ public final class MechanismVisuals3d {
   private MechanismVisuals3d() {}
 
   /**
-   * Sets the chassis box the web renderer draws under the mechanisms. Optional —
-   * defaults to 0.8 × 0.8 × 0.13 m.
+   * Sets the chassis box for the standalone {@link #toJson()} envelope (defaults to
+   * 0.8 × 0.8 × 0.13 m). Note the {@code -PwebUI} isometric view does not use this — it
+   * sizes the chassis from the drivetrain's real bumper dimensions instead.
    *
    * @param lengthMeters bumper-to-bumper along robot X
    * @param widthMeters  bumper-to-bumper along robot Y
@@ -165,15 +174,24 @@ public final class MechanismVisuals3d {
   }
 
   /**
-   * Serializes the chassis box and all published mechanisms as JSON for the web UI's
-   * isometric view. Safe to call from HTTP threads.
+   * Serializes the chassis box and all published mechanisms as JSON. Standalone form
+   * (chassis from {@link #setChassis}); the {@code -PwebUI} view instead composes its
+   * own envelope with the real drivetrain chassis + swerve wheels around
+   * {@link #mechanismsArrayJson()}. Safe to call from HTTP threads.
    */
   public static String toJson() {
-    StringBuilder sb = new StringBuilder(512);
-    sb.append("{\"chassis\":{\"length\":").append(fmt(chassisLength))
-        .append(",\"width\":").append(fmt(chassisWidth))
-        .append(",\"height\":").append(fmt(chassisHeight))
-        .append("},\"mechanisms\":[");
+    return "{\"chassis\":{\"length\":" + fmt(chassisLength)
+        + ",\"width\":" + fmt(chassisWidth)
+        + ",\"height\":" + fmt(chassisHeight)
+        + "},\"mechanisms\":" + mechanismsArrayJson() + "}";
+  }
+
+  /**
+   * Serializes just the published mechanisms as a JSON array
+   * ({@code [{"name":...,"segments":[...]}, ...]}). Safe to call from HTTP threads.
+   */
+  public static String mechanismsArrayJson() {
+    StringBuilder sb = new StringBuilder(512).append('[');
     // Sorted for a stable order in the UI and in tests.
     boolean firstMech = true;
     for (Map.Entry<String, List<Segment>> e : new TreeMap<>(registry).entrySet()) {
@@ -193,7 +211,7 @@ public final class MechanismVisuals3d {
       }
       sb.append("]}");
     }
-    return sb.append("]}").toString();
+    return sb.append(']').toString();
   }
 
   /** The current segments for one mechanism, or an empty list. For tests. */

@@ -82,6 +82,34 @@ class MechanismVisuals3dTest extends SimTestBase {
   }
 
   @Test
+  void rollPlaneMountSweepsInTheYZPlane() {
+    // The side-mounted case: ROLL_PLANE stands the working plane up in robot Y-Z, so
+    // the mechanism angle sweeps left-to-up at constant fore-aft (x) position.
+    Pose3d mount = new Pose3d(0.3, 0, 0.5, MechanismVisuals3d.ROLL_PLANE);
+    Translation3d base = MechanismVisuals3d.planarPoint(mount, 0, 0);
+
+    Translation3d left = MechanismVisuals3d.planarOffset(mount, base, 0, 0.4);
+    assertEquals(0.3, left.getX(), EPS, "Y-Z plane mechanism must keep its fore-aft x");
+    assertEquals(0.4, left.getY(), EPS);
+    assertEquals(0.5, left.getZ(), EPS);
+
+    Translation3d up = MechanismVisuals3d.planarOffset(mount, base, Math.PI / 2, 0.4);
+    assertEquals(0.3, up.getX(), EPS);
+    assertEquals(0.0, up.getY(), EPS);
+    assertEquals(0.9, up.getZ(), EPS);
+  }
+
+  @Test
+  void mechanismsArrayJsonIsABareArrayWithoutChassis() {
+    MechanismVisuals3d.publish("M", List.of(new Segment(
+        "bar", new Translation3d(0, 0, 0), new Translation3d(0, 0, 1), "#58a6ff", 3)));
+    String arr = MechanismVisuals3d.mechanismsArrayJson();
+    assertTrue(arr.startsWith("[") && arr.endsWith("]"), "must be a JSON array: " + arr);
+    assertFalse(arr.contains("chassis"), "array form must not carry the chassis: " + arr);
+    assertTrue(arr.contains("\"name\":\"M\""));
+  }
+
+  @Test
   void segmentPoseAlignsXAxisAlongTheSegment() {
     // The AdvantageScope component pose: position at the start, X-axis along the
     // segment — here a vertical segment, so unit X must map to unit Z.

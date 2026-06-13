@@ -138,20 +138,26 @@ plane can't honestly share one side-view plane. Each mechanism therefore also ca
 z up, meters from robot center at floor level):
 
 - The **translation** is where the mechanism sits on the robot.
-- The **rotation** re-aims its working plane. Identity (default) keeps the
-  Mechanism2d convention — the mechanism moves in the robot's X-Z side-view plane.
-  `MechanismVisuals3d.YAW_PLANE` lays the plane flat, so a `Pivot`'s angle becomes a
-  yaw about the vertical axis: that's how a turret is modeled (see `ExampleTurret`).
+- The **rotation** re-aims its working plane (its local X → `planeX`, local Z →
+  `planeUp`). It can face any direction:
+  - **identity** (default) → robot **X-Z** side-view plane (arm swings fore/aft) — the
+    Mechanism2d convention;
+  - `MechanismVisuals3d.YAW_PLANE` → robot **X-Y** (flat): a `Pivot`'s angle becomes a
+    yaw about the vertical axis, i.e. a turret (see `ExampleTurret`);
+  - `MechanismVisuals3d.ROLL_PLANE` → robot **Y-Z**: the mechanism swings side-to-side
+    (a side-mounted deploy). Any other `Rotation3d` works too — these three are just
+    the common cases.
 
 Every cycle each mechanism publishes its current 3D line segments (current state in
 its type color, goal ghost in white) into the `MechanismVisuals3d` registry. Two
 renderers consume them:
 
 1. **Web UI isometric panel** (`-PwebUI`) — the bottom-right overlay on the field
-   page draws the chassis box plus all mechanism segments, live; drag horizontally to
-   orbit the view. Backed by `GET /api/mechanisms3d`. The chassis box defaults to
-   0.8 × 0.8 × 0.13 m; call `MechanismVisuals3d.setChassis(length, width, height)` to
-   match your robot.
+   page draws the chassis box, the swerve wheels (live steer angle), and all mechanism
+   segments; drag horizontally to orbit the view, and click the title to collapse it
+   (collapsing stops the poll/draw entirely, handy on narrow screens). Backed by
+   `GET /api/mechanisms3d`. The chassis box and wheels are sized from the drivetrain's
+   bumper dimensions and module layout automatically — no configuration needed.
 2. **AdvantageScope 3D** — each publish also logs `Pose3d[]` under
    **Mechanisms3d/\<name\>** (one pose per segment: position at the segment start,
    X-axis along the segment), ready to attach as articulated components on the 3D

@@ -75,16 +75,18 @@
 
   /* ---- canvas wrapper (flex:1, hosts the sidebar overlay) ---- */
   #canvas-wrap { flex: 1; min-width: 0; position: relative; }
+  /* Held / scored counters — a horizontal bar pinned to the TOP of the field, so they
+     stay clear of the 3D mechanism panel in the bottom-right corner. */
   #field-sidebar {
-    position: absolute; right: 0; top: 0; bottom: 0; z-index: 2;
-    width: 60px; background: rgba(20,20,20,0.6);
-    display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 16px;
+    position: absolute; left: 0; right: 0; top: 0; z-index: 2;
+    display: flex; flex-direction: row; align-items: center;
+    justify-content: center; gap: 28px;
+    padding: 5px 0; background: rgba(20,20,20,0.55);
     pointer-events: none;
   }
-  .stat-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .stat-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
-  .stat-value { font-size: 20px; font-weight: bold; }
+  .stat-item { display: flex; flex-direction: row; align-items: baseline; gap: 6px; }
+  .stat-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-value { font-size: 18px; font-weight: bold; }
   #held-count   { color: rgba(245,210,40,0.95); }
   #scored-count { color: rgba(100,230,100,0.95); }
   #field-canvas { display: block; width: 100%; height: 100%; }
@@ -97,10 +99,14 @@
     display: flex; flex-direction: column;
   }
   #mech3d-panel.hidden { display: none; }
+  /* Collapsed: just the title bar remains (a small button), so it gets out of the way
+     of the field on narrow screens — and the poll loop stops fetching/drawing. */
+  #mech3d-panel.collapsed #mech3d-canvas { display: none; }
   #mech3d-title {
-    font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 1px;
-    text-align: center; padding: 3px 4px;
+    font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 1px;
+    text-align: center; padding: 4px 8px; cursor: pointer; user-select: none;
   }
+  #mech3d-title:hover { color: #ccc; }
   #mech3d-canvas {
     display: block; width: 270px; height: 230px;
     touch-action: none; cursor: grab;
@@ -244,7 +250,7 @@
       </div>
     </div>
     <div id="mech3d-panel" class="hidden">
-      <div id="mech3d-title">Mechanisms 3D — drag to rotate</div>
+      <div id="mech3d-title" onclick="toggleMech3d()">Mechanisms 3D — drag to rotate ▾</div>
       <canvas id="mech3d-canvas"></canvas>
     </div>
     <canvas id="field-canvas"></canvas>
@@ -517,8 +523,25 @@ function updateLeds() {
 // overlay canvas: chassis box + per-mechanism line segments in robot coordinates
 // (x forward, y left, z up). Drag horizontally to orbit the view about the Z axis.
 const mechCanvas = document.getElementById('mech3d-canvas');
-let mech3d = null;        // last /api/mechanisms3d payload
-let mechViewYaw = -0.6;   // view orbit angle, radians
+let mech3d = null;          // last /api/mechanisms3d payload
+let mechViewYaw = -0.6;     // view orbit angle, radians
+let mech3dExpanded = true;  // false = collapsed → loop skips the fetch and the draw
+let mech3dHasContent = false; // robot reported a chassis/mechanisms to draw
+
+// Collapse/expand the 3D panel. While collapsed only the title bar shows (out of the
+// way on narrow screens) and the poll loop stops fetching /api/mechanisms3d entirely.
+function toggleMech3d() { mech3dExpanded = !mech3dExpanded; updateMech3d(); }
+
+// Updates the panel chrome each cycle and (re)draws when expanded. Splitting this from
+// drawMech3d() lets the loop keep the chrome live even when drawing is skipped.
+function updateMech3d() {
+  const panel = document.getElementById('mech3d-panel');
+  panel.classList.toggle('hidden', !mech3dHasContent);
+  panel.classList.toggle('collapsed', !mech3dExpanded);
+  document.getElementById('mech3d-title').textContent =
+      mech3dExpanded ? 'Mechanisms 3D — drag to rotate ▾' : 'Mechanisms 3D ▸';
+  if (mech3dExpanded && mech3dHasContent) drawMech3d();
+}
 
 (() => {
   let dragging = false, lastX = 0;
@@ -544,10 +567,8 @@ function isoUV(p) {
 }
 
 function drawMech3d() {
-  const panel = document.getElementById('mech3d-panel');
   const mechs = (mech3d && mech3d.mechanisms) || [];
-  panel.classList.toggle('hidden', mechs.length === 0);
-  if (mechs.length === 0) return;
+  const sw = (mech3d && mech3d.swerve) || [];
 
   const ctx = mechCanvas.getContext('2d');
   const W = mechCanvas.width  = mechCanvas.clientWidth;
@@ -561,9 +582,19 @@ function drawMech3d() {
   const bottom = [[hx, hy, 0], [hx, -hy, 0], [-hx, -hy, 0], [-hx, hy, 0]];
   const top = bottom.map(p => [p[0], p[1], ch.height]);
 
+  // Each swerve module: a short line through the module position (floor level) along
+  // its steer angle, so the wheels visibly point where they're steered.
+  const wr = (ch.wheelRadius || 0.05);
+  const wheels = sw.map(m => {
+    const [cx, cy, ang] = m;
+    const dx = Math.cos(ang) * wr, dy = Math.sin(ang) * wr;
+    return [[cx - dx, cy - dy, 0], [cx + dx, cy + dy, 0]];
+  });
+
   // Auto-fit: project every point and fit the bounds into the canvas with a margin,
   // so the view stays framed at any orbit angle and mechanism extension.
   const pts = [...bottom, ...top].map(isoUV);
+  for (const w of wheels) { pts.push(isoUV(w[0])); pts.push(isoUV(w[1])); }
   for (const m of mechs) {
     for (const s of m.segments) { pts.push(isoUV(s.a)); pts.push(isoUV(s.b)); }
   }
@@ -594,6 +625,9 @@ function drawMech3d() {
     line(bottom[i], top[i],              '#4f4f4f', 1);
   }
   line(top[0], top[1], '#3fb950', 1.5); // front edge (robot +X)
+
+  // Swerve wheels (light grey) — drawn on the floor at each module, steered live.
+  for (const w of wheels) line(w[0], w[1], '#cdd9e5', 3);
 
   // Mechanism segments, exactly as the robot published them this cycle.
   for (const m of mechs) {
@@ -1000,8 +1034,14 @@ setInterval(async () => {
     flyingPieces = (d.flying  || []).map(p => ({ x: p[0], y: p[1] }));
   }).catch(() => {});
 
-  // Fetch mechanism 3D segments (fire-and-forget; drawn on next frame)
-  fetch('/api/mechanisms3d').then(r => r.json()).then(d => { mech3d = d; }).catch(() => {});
+  // Fetch mechanism 3D segments only while the panel is expanded — collapsing it stops
+  // this request (and the draw below) so a hidden panel costs nothing client or server.
+  if (mech3dExpanded) {
+    fetch('/api/mechanisms3d').then(r => r.json()).then(d => {
+      mech3d = d;
+      mech3dHasContent = ((d.mechanisms || []).length + (d.swerve || []).length) > 0;
+    }).catch(() => {});
+  }
 
   // POST drive command (fire-and-forget)
   fetch('/api/drive', {
@@ -1020,12 +1060,12 @@ setInterval(async () => {
     updateLeds();
     updateStatus(vx, vy, omega);
     drawField();
-    drawMech3d();
+    updateMech3d();
   } catch (e) {
     state.connected = false;
     updateStatus(0, 0, 0);
     drawField();
-    drawMech3d();
+    updateMech3d();
   }
 }, 50);
 
