@@ -136,58 +136,59 @@ class MechanismVisuals3dTest extends SimTestBase {
   }
 
   @Test
-  void followerMarkerIsEmptyWhenNoFollowerIsPresent() {
-    Pose3d mount = new Pose3d(0, 0, 0.5, Rotation3d.kZero);
-    assertTrue(MechanismVisuals3d.followerMarker(
-            false, mount, new Translation3d(0, 0.1, 0), 0, 0.04, "follower", "#8b949e")
-        .isEmpty());
+  void offsetMountShiftsTheMountInItsOwnFrame() {
+    // Identity mount: the local offset is a plain robot-frame shift; rotation unchanged.
+    Pose3d mount = new Pose3d(1, 2, 0.5, Rotation3d.kZero);
+    Pose3d shifted = MechanismVisuals3d.offsetMount(mount, new Translation3d(0.1, 0.2, 0.3));
+    assertEquals(1.1, shifted.getX(), 1e-9);
+    assertEquals(2.2, shifted.getY(), 1e-9);
+    assertEquals(0.8, shifted.getZ(), 1e-9);
+    assertEquals(mount.getRotation(), shifted.getRotation(), "mirror keeps the mount's orientation");
+
+    // Yawed mount (90° about Z): the local +X offset comes out along robot +Y.
+    Pose3d yawed = new Pose3d(0, 0, 0, new Rotation3d(0, 0, Math.PI / 2));
+    Pose3d yawShift = MechanismVisuals3d.offsetMount(yawed, new Translation3d(0.5, 0, 0));
+    assertEquals(0.0, yawShift.getX(), 1e-9);
+    assertEquals(0.5, yawShift.getY(), 1e-9);
   }
 
   @Test
-  void followerMarkerDrawsACrossAtItsOffset() {
-    // Identity mount: the marker is a cross in the X-Z plane centered at mount + offset.
-    Pose3d mount = new Pose3d(1.0, 0.0, 0.5, Rotation3d.kZero);
-    Translation3d offset = new Translation3d(0, 0.2, 0.1); // along plane-normal (+Y) and up
-    List<Segment> cross = MechanismVisuals3d.followerMarker(
-        true, mount, offset, 0, 0.04, "follower", "#8b949e");
-    assertEquals(2, cross.size(), "a cross is two diameter segments");
+  void followerDrawsAnOffsetMirrorOfTheMechanism() {
+    // ExampleElevator carries a follower offset 0.5 m along +Y: every drawn segment must
+    // appear twice (lead + mirror), the mirror shifted by the offset, tracking live state.
+    var elevator = new ExampleElevator();
+    try {
+      elevator.periodic();
+      List<Segment> segments = MechanismVisuals3d.getSegments("ExampleElevator");
 
-    Translation3d center = new Translation3d(1.0, 0.2, 0.6); // mount + offset
-    // Spoke 0 (spin 0) lies along the plane's horizontal axis (robot X), through center.
-    Segment horizontal = cross.get(0);
-    assertEquals(0.0, horizontal.start().getDistance(new Translation3d(0.96, 0.2, 0.6)), 1e-6);
-    assertEquals(0.0, horizontal.end().getDistance(new Translation3d(1.04, 0.2, 0.6)), 1e-6);
-    // Both spokes pass through the same center (midpoint of each diameter).
-    for (Segment s : cross) {
-      Translation3d mid = s.start().plus(s.end()).div(2);
-      assertEquals(0.0, mid.getDistance(center), 1e-6, "every spoke is centered on the marker");
+      List<Segment> carriages = segments.stream()
+          .filter(s -> "carriage".equals(s.label())).toList();
+      assertEquals(2, carriages.size(), "a follower mirrors the whole mechanism");
+
+      Translation3d offset = elevator.getSettings().followerVisualOffset;
+      Segment lead = carriages.get(0);
+      Segment mirror = carriages.get(1);
+      // Identity mount, so the local +Y offset is a robot +Y shift between the two copies.
+      assertEquals(offset.getY(), mirror.start().getY() - lead.start().getY(), 1e-6);
+      assertEquals(0.0, mirror.start().getX() - lead.start().getX(), 1e-6);
+      assertEquals(0.0, mirror.start().getZ() - lead.start().getZ(), 1e-6,
+          "the mirror is at the same height as the lead — it tracks the live carriage");
+    } finally {
+      elevator.close();
     }
   }
 
   @Test
-  void followerMarkerSpinRotatesTheCross() {
-    // A non-zero spin must move the spoke endpoints — that is the animation.
-    Pose3d mount = new Pose3d(0, 0, 0.5, Rotation3d.kZero);
-    Translation3d offset = new Translation3d(0, 0.1, 0);
-    Translation3d still = MechanismVisuals3d.followerMarker(
-        true, mount, offset, 0, 0.04, "follower", "#8b949e").get(0).end();
-    Translation3d spun = MechanismVisuals3d.followerMarker(
-        true, mount, offset, Math.PI / 4, 0.04, "follower", "#8b949e").get(0).end();
-    assertTrue(still.getDistance(spun) > 1e-3, "spinning the follower must move its spokes");
-  }
-
-  @Test
-  void mechanismWithAFollowerPublishesAFollowerMarker() {
-    // ExampleElevator is configured with a follower; its periodic() must emit a marker.
-    var elevator = new ExampleElevator();
+  void noFollowerDrawsNoMirror() {
+    // ExampleArm has no follower configured, so each segment appears exactly once.
+    var arm = new frc.robot.mechanisms.ExampleArm();
     try {
-      elevator.periodic();
-      assertTrue(
-          MechanismVisuals3d.getSegments("ExampleElevator").stream()
-              .anyMatch(s -> "follower".equals(s.label())),
-          "a configured follower must publish a 'follower' marker segment");
+      arm.periodic();
+      long armBars = MechanismVisuals3d.getSegments("ExampleArm").stream()
+          .filter(s -> "arm".equals(s.label())).count();
+      assertEquals(1, armBars, "no follower → no mirror");
     } finally {
-      elevator.close();
+      arm.close();
     }
   }
 

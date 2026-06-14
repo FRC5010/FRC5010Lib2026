@@ -136,27 +136,36 @@ public abstract class SingleDofMechanism extends SubsystemBase implements AutoCl
     return inputs.velocityRotPerSec * params.nativePerRot;
   }
 
+  /** Rebuilds a mechanism's 3D segments at a given mount pose (real mount, then mirror). */
+  @FunctionalInterface
+  protected interface SegmentBuilder {
+    /**
+     * @param mount the mount pose to draw against
+     * @return the mechanism's segments for that mount
+     */
+    java.util.List<MechanismVisuals3d.Segment> build(Pose3d mount);
+  }
+
   /**
-   * Appends a follower-motor marker to a mechanism's published 3D segments when a
-   * follower is configured ({@code followerCanId >= 0}). A follower shares the lead's
-   * shaft, so it draws as a small spinner at {@code offset} from the resolved mount,
-   * turning with the lead-shaft rotation (negated when the follower opposes the lead)
-   * if {@code animated}, or static otherwise. No-op when no follower is configured.
+   * Appends an offset mirror of the mechanism when a follower is configured
+   * ({@code followerCanId >= 0}): the same geometry redrawn at {@code offset} from the
+   * resolved mount (mount-local frame), e.g. the far side of an elevator or a duplicated
+   * arm on the same shaft. The follower is mechanically locked to the lead, so the mirror
+   * tracks the live state every cycle. No-op when no follower is configured.
    *
    * @param segments      the mutable segment list being built for this cycle
    * @param mount         the mechanism's resolved mount pose
    * @param followerCanId the follower CAN ID (&lt; 0 = none)
-   * @param offset        follower position relative to the mount, mount-local meters
-   * @param animated      true to spin the marker with the motor
-   * @param opposed       true if the follower is mounted opposing the lead
+   * @param offset        mirror position relative to the mount, mount-local meters
+   * @param builder       rebuilds the mechanism's segments at the mirrored mount
    */
-  protected void appendFollowerMarker(
+  protected void appendFollowerMirror(
       java.util.List<MechanismVisuals3d.Segment> segments, Pose3d mount, int followerCanId,
-      Translation3d offset, boolean animated, boolean opposed) {
-    double spin = animated ? inputs.positionRot * 2 * Math.PI * (opposed ? -1 : 1) : 0;
-    segments.addAll(MechanismVisuals3d.followerMarker(
-        followerCanId >= 0, mount, offset, spin,
-        MechanismVisuals3d.FOLLOWER_MARKER_RADIUS, "follower", MechanismVisuals3d.FOLLOWER_COLOR));
+      Translation3d offset, SegmentBuilder builder) {
+    if (followerCanId < 0) {
+      return;
+    }
+    segments.addAll(builder.build(MechanismVisuals3d.offsetMount(mount, offset)));
   }
 
   /** Logs the goal each cycle in subclass-friendly units. */

@@ -102,8 +102,8 @@ Commands: `goToHeight(Distance)` / `goToAngle(Angle)` / `goToSpeed(AngularVeloci
 **Real-robot hardware options** (all in Settings):
 - `followerCanId`/`followerOpposed` — second TalonFX on the same gearbox (set
   `motorModel = DCMotor.getKrakenX60(2)` so the plant/sim include both motors).
-  `followerVisualOffset`/`followerAnimated` place and animate its 3D marker (see the
-  3D-visualization section below).
+  `followerVisualOffset` draws it as an offset mirror in the 3D view (single-DOF only;
+  see the 3D-visualization section below).
 - Arm/Pivot `cancoderId`/`cancoderOffset` — absolute CANcoder mounted 1:1 on the
   joint, fused onboard (position correct at power-on, no seeding). Best paired with
   PROFILED_PID: onboard MotionMagic consumes the fused sensor at 1 kHz
@@ -166,14 +166,14 @@ the bracket/standoff that carries the child off the parent (e.g. the shooter sit
 past the arm tip in the demo). Keeping it separate from `visualPose3d` lets the same
 child pose read identically whether the mechanism is standalone or coupled.
 
-**Follower motors.** A follower (`followerCanId`) is locked to the lead shaft, so it has
-no position of its own — but you can show *where* the second motor lives:
+**Follower motors** (single-DOF only: `Elevator`/`Arm`/`Pivot`). A follower
+(`followerCanId`) is locked to the lead shaft, so it has no motion of its own — but you
+can draw it as an **offset mirror of the mechanism**: the same geometry redrawn at
 `settings.followerVisualOffset` (a `Translation3d` in the mount's local frame: x = plane
-horizontal, y = plane normal, z = plane vertical) draws a small spinner marker at that
-spot, and `settings.followerAnimated` (default true) turns it with the lead shaft
-(reversed when `followerOpposed`). It's drawn only when a follower is configured.
-`ExampleElevator` carries a follower on CAN 36 offset to the +Y face of the carriage as
-a live example.
+horizontal, y = plane normal, z = plane vertical). Use it to show the far side of an
+elevator or a duplicated arm on the same shaft. The mirror tracks the live state every
+cycle and is drawn only when a follower is configured. `ExampleElevator` carries a
+follower on CAN 36 mirrored 0.5 m to the +Y side as a live example.
 
 Every cycle each mechanism publishes its current 3D line segments (current state in
 its type color, goal ghost in white) into the `MechanismVisuals3d` registry. A

@@ -61,14 +61,13 @@ public class Elevator extends SingleDofMechanism {
     /** True if the follower is mounted opposing the lead motor. */
     public boolean followerOpposed = false;
     /**
-     * 3D position of the follower motor relative to this mechanism's mount, in the
-     * mount's local frame (x = plane horizontal, y = plane normal, z = plane vertical),
-     * meters. Only drawn when {@link #followerCanId} is set — lets the follower appear
-     * at its real spot (e.g. the opposite side of the gearbox) instead of on the lead.
+     * Where to draw the follower as an offset mirror of this mechanism — the same
+     * geometry (frame + carriage) redrawn at this offset from the mount, in the mount's
+     * local frame (x = plane horizontal, y = plane normal, z = plane vertical), meters.
+     * Use it to show the far side of the elevator. Only drawn when {@link #followerCanId}
+     * is set; the mirror tracks the live carriage every cycle.
      */
-    public Translation3d followerVisualOffset = new Translation3d(0, 0.1, 0);
-    /** Spin the follower's 3D marker with the shaft (false = static marker). */
-    public boolean followerAnimated = true;
+    public Translation3d followerVisualOffset = new Translation3d(0, 0.5, 0);
     /** Motor physics model (count = motors on the gearbox, including the follower). */
     public DCMotor motorModel = DCMotor.getKrakenX60(1);
     /** Gear reduction stages, rotor → mechanism (e.g. {4, 3} = 12:1). */
@@ -347,7 +346,15 @@ public class Elevator extends SingleDofMechanism {
 
     Pose3d mount = MechanismVisuals3d.resolveMount(
         settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
-    var segments = new java.util.ArrayList<MechanismVisuals3d.Segment>(List.of(
+    var segments = new java.util.ArrayList<>(elevatorSegments(mount, height, goal));
+    appendFollowerMirror(segments, mount, settings.followerCanId,
+        settings.followerVisualOffset, m -> elevatorSegments(m, height, goal));
+    MechanismVisuals3d.publish(settings.name, segments);
+  }
+
+  /** The frame/goal/carriage segments for one mount — drawn again at the follower offset. */
+  private List<MechanismVisuals3d.Segment> elevatorSegments(Pose3d mount, double height, double goal) {
+    return List.of(
         new MechanismVisuals3d.Segment("frame",
             MechanismVisuals3d.planarPoint(mount, 0, settings.minHeight.in(Meters)),
             MechanismVisuals3d.planarPoint(mount, 0, settings.maxHeight.in(Meters)),
@@ -359,10 +366,7 @@ public class Elevator extends SingleDofMechanism {
         new MechanismVisuals3d.Segment("carriage",
             MechanismVisuals3d.planarPoint(mount, -0.1, height),
             MechanismVisuals3d.planarPoint(mount, 0.1, height),
-            "#58a6ff", 3)));
-    appendFollowerMarker(segments, mount, settings.followerCanId,
-        settings.followerVisualOffset, settings.followerAnimated, settings.followerOpposed);
-    MechanismVisuals3d.publish(settings.name, segments);
+            "#58a6ff", 3));
   }
 
   /** Command: drive the carriage to the given height. Never finishes. */

@@ -53,16 +53,6 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     public int followerCanId = -1;
     /** True if the follower is mounted opposing the lead motor. */
     public boolean followerOpposed = false;
-    /**
-     * 3D position of the follower motor relative to this mechanism's mount, in the
-     * mount's local frame (x = plane horizontal, y = plane normal, z = plane vertical),
-     * meters. Only drawn when {@link #followerCanId} is set — lets the follower appear
-     * at its real spot (e.g. the opposite side of the wheel) instead of on the lead.
-     */
-    public edu.wpi.first.math.geometry.Translation3d followerVisualOffset =
-        new edu.wpi.first.math.geometry.Translation3d(0, 0.1, 0);
-    /** Spin the follower's 3D marker with the shaft (false = static marker). */
-    public boolean followerAnimated = true;
     /** Drop the goal when the robot is disabled (stay spun down on re-enable). */
     public boolean clearGoalOnDisable = false;
     /** Motor physics model. */
@@ -366,13 +356,6 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     segments.add(new MechanismVisuals3d.Segment("needle", center,
         MechanismVisuals3d.planarOffset(mount, center, needleRad, radius * 0.92),
         "#7ee787", 3));
-    // A follower shares the lead's shaft — spin its marker with the wheel.
-    double followerSpin = settings.followerAnimated
-        ? inputs.positionRot * 2 * Math.PI * (settings.followerOpposed ? -1 : 1)
-        : 0;
-    segments.addAll(MechanismVisuals3d.followerMarker(
-        settings.followerCanId >= 0, mount, settings.followerVisualOffset, followerSpin,
-        MechanismVisuals3d.FOLLOWER_MARKER_RADIUS, "follower", MechanismVisuals3d.FOLLOWER_COLOR));
     MechanismVisuals3d.publish(settings.name, segments);
   }
 

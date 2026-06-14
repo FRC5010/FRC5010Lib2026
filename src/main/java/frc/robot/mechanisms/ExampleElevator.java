@@ -34,13 +34,13 @@ public class ExampleElevator extends Elevator {
     var s = new Settings();
     s.name = "ExampleElevator";
     s.canId = CAN_ID;
-    // Two-motor gearbox: a follower on CAN 36, opposing the lead, drawn beside it in the
-    // 3D view (a spinner on the +Y face of the carriage frame). On a real two-motor
-    // gearbox also set motorModel = DCMotor.getKrakenX60(2) and re-characterize kG; this
-    // demo keeps the single-motor plant so its tuning matches the other examples.
+    // Two-motor gearbox: a follower on CAN 36, drawn in the 3D view as an offset mirror
+    // of the elevator 0.5 m to the +Y side (the far rail of the carriage). On a real
+    // two-motor gearbox also set motorModel = DCMotor.getKrakenX60(2) and re-characterize
+    // kG; this demo keeps the single-motor plant so its tuning matches the other examples.
     s.followerCanId = FOLLOWER_CAN_ID;
     s.followerOpposed = true;
-    s.followerVisualOffset = new edu.wpi.first.math.geometry.Translation3d(0, 0.18, 0.1);
+    s.followerVisualOffset = new edu.wpi.first.math.geometry.Translation3d(0, 0.5, 0);
     s.motorModel = DCMotor.getKrakenX60(1);
     s.gearReductionStages = new double[] {4, 3}; // 12:1
     s.drumCircumference = Inches.of(0.25 * 22); // 22T #25-chain sprocket

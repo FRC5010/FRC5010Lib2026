@@ -57,12 +57,6 @@ public final class MechanismVisuals3d {
    */
   public static final Rotation3d ROLL_PLANE = new Rotation3d(0, 0, Math.PI / 2);
 
-  /** Default spoke length (marker half-width) for {@link #followerMarker}, meters. */
-  public static final double FOLLOWER_MARKER_RADIUS = 0.04;
-
-  /** Default color for follower markers — neutral gray, reads as a secondary motor. */
-  public static final String FOLLOWER_COLOR = "#8b949e";
-
   /**
    * One drawn line segment in the robot frame.
    *
@@ -191,43 +185,19 @@ public final class MechanismVisuals3d {
   }
 
   /**
-   * Builds the visual marker for a follower motor — a small four-spoke spinner drawn at
-   * a fixed 3D offset from the mechanism's mount, lying in the mount's working plane. A
-   * follower is mechanically locked to the lead shaft, so it has no position of its own;
-   * this just shows <em>where</em> the second motor lives on the robot and, when fed a
-   * live {@code spinRad}, that it is turning. Pass a constant (e.g. 0) every cycle for a
-   * static marker.
+   * Returns a copy of {@code mount} shifted by {@code localOffset} in the mount's own
+   * frame (x = plane horizontal, y = plane normal, z = plane vertical), keeping the
+   * mount's orientation. Used to draw a follower as an offset mirror of its mechanism —
+   * the same geometry rebuilt at this shifted mount (e.g. the far side of an elevator or
+   * a duplicated arm on the same shaft).
    *
-   * @param present     whether a follower is configured — when false an empty list is
-   *                    returned so callers can append unconditionally
    * @param mount       the mechanism's resolved mount pose
-   * @param localOffset follower position relative to the mount, in the mount's local
-   *                    frame (x = plane horizontal, y = plane normal, z = plane
-   *                    vertical), meters
-   * @param spinRad     spinner rotation within the working plane, radians
-   * @param radius      spoke length (marker half-width), meters
-   * @param label       segment label (e.g. {@code "follower"})
-   * @param colorHex    CSS color
-   * @return two crossed diameter segments forming the spinner, or empty when not present
+   * @param localOffset offset from the mount in its local frame, meters
+   * @return the shifted mount, same rotation
    */
-  public static List<Segment> followerMarker(
-      boolean present, Pose3d mount, Translation3d localOffset, double spinRad, double radius,
-      String label, String colorHex) {
-    if (!present) {
-      return List.of();
-    }
-    Translation3d center = localOffset(mount, mount.getTranslation(), localOffset);
-    List<Segment> segments = new ArrayList<>(2);
-    for (int spoke = 0; spoke < 2; spoke++) {
-      double angle = spinRad + spoke * Math.PI / 2;
-      segments.add(new Segment(
-          label,
-          planarOffset(mount, center, angle + Math.PI, radius),
-          planarOffset(mount, center, angle, radius),
-          colorHex,
-          2));
-    }
-    return segments;
+  public static Pose3d offsetMount(Pose3d mount, Translation3d localOffset) {
+    return new Pose3d(
+        localOffset(mount, mount.getTranslation(), localOffset), mount.getRotation());
   }
 
   /**

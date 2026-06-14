@@ -66,14 +66,13 @@ public class Pivot extends SingleDofMechanism {
     /** True if the follower is mounted opposing the lead motor. */
     public boolean followerOpposed = false;
     /**
-     * 3D position of the follower motor relative to this mechanism's mount, in the
-     * mount's local frame (x = plane horizontal, y = plane normal, z = plane vertical),
-     * meters. Only drawn when {@link #followerCanId} is set — lets the follower appear
-     * at its real spot (e.g. the opposite side of the gearbox) instead of on the lead.
+     * Where to draw the follower as an offset mirror of this mechanism — the pivot bar
+     * redrawn at this offset from the mount, in the mount's local frame (x = plane
+     * horizontal, y = plane normal, z = plane vertical), meters. Use it to show a
+     * duplicated pivot on the same shaft. Only drawn when {@link #followerCanId} is set;
+     * the mirror rotates with the live pivot every cycle.
      */
-    public Translation3d followerVisualOffset = new Translation3d(0, 0.1, 0);
-    /** Spin the follower's 3D marker with the shaft (false = static marker). */
-    public boolean followerAnimated = true;
+    public Translation3d followerVisualOffset = new Translation3d(0, 0.2, 0);
     /** CAN ID of a fused CANcoder mounted 1:1 on the pivot; −1 = rotor sensor. */
     public int cancoderId = -1;
     /** CANcoder reading at the pivot's zero, for the magnet offset. */
@@ -331,16 +330,21 @@ public class Pivot extends SingleDofMechanism {
 
     Pose3d mount = MechanismVisuals3d.resolveMount(
         settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
+    var segments = new java.util.ArrayList<>(pivotSegments(mount, goalRad));
+    appendFollowerMirror(segments, mount, settings.followerCanId,
+        settings.followerVisualOffset, m -> pivotSegments(m, goalRad));
+    MechanismVisuals3d.publish(settings.name, segments);
+  }
+
+  /** The goal-ghost and pivot segments for one mount — drawn again at the follower offset. */
+  private java.util.List<MechanismVisuals3d.Segment> pivotSegments(Pose3d mount, double goalRad) {
     Translation3d base = MechanismVisuals3d.planarPoint(mount, 0, 0);
-    var segments = new java.util.ArrayList<MechanismVisuals3d.Segment>(java.util.List.of(
+    return java.util.List.of(
         new MechanismVisuals3d.Segment("goal", base,
             MechanismVisuals3d.planarOffset(mount, base, goalRad, 0.4), "#ffffff", 1),
         new MechanismVisuals3d.Segment("pivot", base,
             MechanismVisuals3d.planarOffset(mount, base, positionNative(), 0.4),
-            "#d2a8ff", 3)));
-    appendFollowerMarker(segments, mount, settings.followerCanId,
-        settings.followerVisualOffset, settings.followerAnimated, settings.followerOpposed);
-    MechanismVisuals3d.publish(settings.name, segments);
+            "#d2a8ff", 3));
   }
 
   /** Command: rotate the pivot to the given angle. Never finishes. */
