@@ -251,6 +251,32 @@ class MechanismVisuals3dTest extends SimTestBase {
   }
 
   @Test
+  void robotSceneBuildsChassisWheelsAndCompass() {
+    // 0.8 x 0.7 chassis, 4 modules: 12 box edges + 4 wheels + 16 compass ring + 1 heading.
+    double[][] modules = {
+        {0.3, 0.3, 0, 0}, {0.3, -0.3, 0, 0}, {-0.3, 0.3, 0, 0}, {-0.3, -0.3, 0, 0}};
+    List<Segment> scene =
+        MechanismVisuals3d.robotSceneSegments(0.8, 0.7, 0.15, 0.05, modules, 0.0);
+    assertEquals(12, scene.stream().filter(s -> "chassis".equals(s.label())).count());
+    assertEquals(4, scene.stream().filter(s -> "wheel".equals(s.label())).count());
+    assertEquals(16, scene.stream().filter(s -> "compass".equals(s.label())).count());
+    assertEquals(1, scene.stream().filter(s -> "heading".equals(s.label())).count());
+
+    // The heading needle points along +X (robot forward) at gyro 0.
+    Segment heading = scene.stream().filter(s -> "heading".equals(s.label())).findFirst().orElseThrow();
+    assertTrue(heading.end().getX() > heading.start().getX(), "gyro 0 points robot-forward");
+    assertEquals(0.0, heading.end().getY(), 1e-9);
+  }
+
+  @Test
+  void setRobotSceneRendersOntoTheIsoCanvas() {
+    double[][] modules = {{0.3, 0.3, 0, 0}, {0.3, -0.3, 0, 0}};
+    MechanismVisuals3d.setRobotScene(0.8, 0.7, 0.15, 0.05, modules, 0.0);
+    // 12 chassis + 2 wheels + 16 compass + 1 heading = 31 slots on the shared canvas.
+    assertEquals(31, MechanismIsoCanvas.slotCount(MechanismVisuals3d.SCENE_NAME));
+  }
+
+  @Test
   void mechanismsArrayJsonIsABareArrayWithoutChassis() {
     MechanismVisuals3d.publish("M", List.of(new Segment(
         "bar", new Translation3d(0, 0, 0), new Translation3d(0, 0, 1), "#58a6ff", 3)));

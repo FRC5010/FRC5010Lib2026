@@ -35,6 +35,7 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import org.frc5010.common.drive.swerve.SwerveConstants;
+import org.frc5010.common.mechanisms.MechanismVisuals3d;
 import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 import swervelib.simulation.ironmaple.simulation.SimulatedArena;
@@ -233,6 +234,10 @@ public class AkitSwerveDrive extends SubsystemBase {
 
     // Mechanism2d drivetrain view (wheel arrows + gyro needle) for Glass / dashboards.
     swerveVisuals.update(getModuleStates(), getGyroRotation());
+
+    // Unified isometric robot view (chassis + wheels + gyro + mechanisms) on the same
+    // RobotMechanisms3D canvas the mechanisms publish to — equivalent to the web panel.
+    publishIsoScene();
 
     // Feed the IronMaple physics body's ground-truth pose into the pose estimator as a
     // near-perfect "vision" measurement.  This must happen AFTER updateWithTime() so the
@@ -511,6 +516,32 @@ public class AkitSwerveDrive extends SubsystemBase {
       double timestampSeconds,
       Matrix<N3, N1> stdDevs) {
     poseEstimator.addVisionMeasurement(visionPose, timestampSeconds, stdDevs);
+  }
+
+  /**
+   * Publishes the drivetrain stage (chassis box, steered wheels, gyro compass) onto the
+   * shared {@code RobotMechanisms3D} iso canvas so the plain simulator shows the same
+   * robot view as the web panel.
+   */
+  private void publishIsoScene() {
+    SwerveModuleState[] states = getModuleStates();
+    Translation2d[] translations = constants.moduleTranslations;
+    double maxSpeed = Math.max(1e-6, constants.maxLinearSpeed.in(Units.MetersPerSecond));
+    int n = Math.min(states.length, translations.length);
+    double[][] modulesScene = new double[n][4];
+    for (int i = 0; i < n; i++) {
+      modulesScene[i][0] = translations[i].getX();
+      modulesScene[i][1] = translations[i].getY();
+      modulesScene[i][2] = states[i].angle.getRadians();
+      modulesScene[i][3] = states[i].speedMetersPerSecond / maxSpeed;
+    }
+    MechanismVisuals3d.setRobotScene(
+        constants.bumperLength.in(Units.Meters),
+        constants.bumperWidth.in(Units.Meters),
+        0.15,
+        constants.wheelRadius.in(Units.Meters),
+        modulesScene,
+        getGyroRotation().getRadians());
   }
 
   // ---------------------------------------------------------------------------

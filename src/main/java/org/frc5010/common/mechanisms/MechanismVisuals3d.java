@@ -226,6 +226,82 @@ public final class MechanismVisuals3d {
     MechanismIsoCanvas.remove(name);
   }
 
+  /** Reserved iso-canvas name for the drivetrain "stage" (chassis, wheels, gyro). */
+  static final String SCENE_NAME = "RobotChassis";
+
+  /**
+   * Publishes the drivetrain stage — chassis box, swerve wheels (live steer; length grows
+   * with speed), and a gyro-heading compass — onto the Glass iso canvas, so it matches the
+   * web isometric panel's chassis/wheels/gyro. Call each cycle from the drivetrain. This
+   * draws only on the iso canvas; it is <em>not</em> added to the mechanism registry, so
+   * the web {@code /api/mechanisms3d} (which composes its own chassis) is unaffected.
+   * Robot frame: x forward, y left, z up, meters.
+   *
+   * @param lengthM      bumper-to-bumper length (robot X)
+   * @param widthM       bumper-to-bumper width (robot Y)
+   * @param heightM      chassis box height (robot Z)
+   * @param wheelRadiusM module wheel radius
+   * @param modules      per module {@code {x, y, steerRad, speedFrac}} (speedFrac in [-1,1])
+   * @param gyroRad      gyro heading, 0 = robot forward, positive CCW
+   */
+  public static void setRobotScene(double lengthM, double widthM, double heightM,
+      double wheelRadiusM, double[][] modules, double gyroRad) {
+    MechanismIsoCanvas.render(SCENE_NAME,
+        robotSceneSegments(lengthM, widthM, heightM, wheelRadiusM, modules, gyroRad));
+  }
+
+  /** Builds the chassis-box + wheel + gyro-compass segments for {@link #setRobotScene}. */
+  static List<Segment> robotSceneSegments(double lengthM, double widthM, double heightM,
+      double wheelRadiusM, double[][] modules, double gyroRad) {
+    List<Segment> segs = new ArrayList<>();
+    double hl = lengthM / 2;
+    double hw = widthM / 2;
+    String chassisColor = "#8b949e";
+    // The four corners at the floor (z=0) and at the chassis top (z=height).
+    Translation3d[][] corners = new Translation3d[2][4];
+    double[] levels = {0, heightM};
+    for (int z = 0; z < 2; z++) {
+      corners[z][0] = new Translation3d(hl, hw, levels[z]);
+      corners[z][1] = new Translation3d(hl, -hw, levels[z]);
+      corners[z][2] = new Translation3d(-hl, -hw, levels[z]);
+      corners[z][3] = new Translation3d(-hl, hw, levels[z]);
+    }
+    for (int z = 0; z < 2; z++) {
+      for (int k = 0; k < 4; k++) {
+        segs.add(new Segment("chassis", corners[z][k], corners[z][(k + 1) % 4], chassisColor, 2));
+      }
+    }
+    for (int k = 0; k < 4; k++) {
+      segs.add(new Segment("chassis", corners[0][k], corners[1][k], chassisColor, 2));
+    }
+    // One wheel line per module: centered at the module, aimed at its live steer angle,
+    // length growing with the normalized drive speed (a stopped wheel is a short stub).
+    for (double[] m : modules) {
+      double half = wheelRadiusM + Math.abs(m[3]) * 0.25;
+      double dx = Math.cos(m[2]) * half;
+      double dy = Math.sin(m[2]) * half;
+      segs.add(new Segment("wheel",
+          new Translation3d(m[0] - dx, m[1] - dy, wheelRadiusM),
+          new Translation3d(m[0] + dx, m[1] + dy, wheelRadiusM),
+          "#58a6ff", 4));
+    }
+    // Gyro compass on the chassis top: a ring with a needle at the heading.
+    double ringR = Math.min(hl, hw) * 0.8;
+    double cz = heightM + 0.02;
+    int sides = 16;
+    Translation3d prev = new Translation3d(ringR, 0, cz);
+    for (int k = 1; k <= sides; k++) {
+      double a = 2 * Math.PI * k / sides;
+      Translation3d next = new Translation3d(ringR * Math.cos(a), ringR * Math.sin(a), cz);
+      segs.add(new Segment("compass", prev, next, "#39d0d8", 1));
+      prev = next;
+    }
+    segs.add(new Segment("heading", new Translation3d(0, 0, cz),
+        new Translation3d(ringR * Math.cos(gyroRad), ringR * Math.sin(gyroRad), cz),
+        "#39d0d8", 3));
+    return segs;
+  }
+
   /** A {@link Pose3d} at the segment start with its X-axis pointing along the segment. */
   static Pose3d segmentPose(Segment s) {
     Translation3d dir = s.end().minus(s.start());
