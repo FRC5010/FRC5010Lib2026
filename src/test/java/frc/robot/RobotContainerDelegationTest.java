@@ -14,7 +14,7 @@ import swervelib.simulation.ironmaple.simulation.SimulatedArena;
 /**
  * Layer 3 — pins {@link RobotContainer}'s own construct-and-delegate contract,
  * independent of which {@link org.frc5010.common.profiles.SwerveRobotContainer} subclass
- * it currently builds. The demo composition itself ({@link frc.robot.example.ExampleRobot}'s
+ * it currently builds. The demo composition itself ({@link org.frc5010.examples.ExampleRobot}'s
  * DemoIntake + 11 mechanisms + X-button bindings) is covered by {@code ExampleRobotSmokeTest}.
  *
  * <p>Teardown mirrors {@code ExampleRobotSmokeTest}'s so the file works whether
