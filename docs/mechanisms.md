@@ -102,6 +102,8 @@ Commands: `goToHeight(Distance)` / `goToAngle(Angle)` / `goToSpeed(AngularVeloci
 **Real-robot hardware options** (all in Settings):
 - `followerCanId`/`followerOpposed` — second TalonFX on the same gearbox (set
   `motorModel = DCMotor.getKrakenX60(2)` so the plant/sim include both motors).
+  `followerVisualOffset`/`followerAnimated` place and animate its 3D marker (see the
+  3D-visualization section below).
 - Arm/Pivot `cancoderId`/`cancoderOffset` — absolute CANcoder mounted 1:1 on the
   joint, fused onboard (position correct at power-on, no seeding). Best paired with
   PROFILED_PID: onboard MotionMagic consumes the fused sensor at 1 kHz
@@ -157,6 +159,21 @@ an absolute mount, so the child tracks the parent every cycle (raising the eleva
 lifts the whole arm + flywheel assembly). Chains work to any depth. The example robot
 wires `ExampleElevator → ExampleArm → ExampleShooter` as a three-link demo (see
 `ExampleRobot.configureDemoMechanisms`).
+
+`settings.visualParentOffset` (a `Transform3d`, default identity) is a **structural
+linkage offset** applied to the parent's endpoint *before* the child's `visualPose3d` —
+the bracket/standoff that carries the child off the parent (e.g. the shooter sitting 8 cm
+past the arm tip in the demo). Keeping it separate from `visualPose3d` lets the same
+child pose read identically whether the mechanism is standalone or coupled.
+
+**Follower motors.** A follower (`followerCanId`) is locked to the lead shaft, so it has
+no position of its own — but you can show *where* the second motor lives:
+`settings.followerVisualOffset` (a `Translation3d` in the mount's local frame: x = plane
+horizontal, y = plane normal, z = plane vertical) draws a small spinner marker at that
+spot, and `settings.followerAnimated` (default true) turns it with the lead shaft
+(reversed when `followerOpposed`). It's drawn only when a follower is configured.
+`ExampleElevator` carries a follower on CAN 36 offset to the +Y face of the carriage as
+a live example.
 
 Every cycle each mechanism publishes its current 3D line segments (current state in
 its type color, goal ghost in white) into the `MechanismVisuals3d` registry. A

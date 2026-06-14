@@ -117,6 +117,81 @@ class MechanismVisuals3dTest extends SimTestBase {
   }
 
   @Test
+  void resolveMountAppliesLinkageOffsetBeforeLocalPose() {
+    // Parent endpoint at the origin facing forward. A 0.5 m linkage standoff along the
+    // parent's +X carries the child off the endpoint; the child's own local pose then
+    // adds 0.2 m more along the (now shifted) frame. They compose: 0.7 m total.
+    Pose3d parent = new Pose3d(0, 0, 0, Rotation3d.kZero);
+    Pose3d coupled = MechanismVisuals3d.resolveMount(
+        new Pose3d(0.2, 0, 0, Rotation3d.kZero), () -> parent,
+        new edu.wpi.first.math.geometry.Transform3d(
+            new Translation3d(0.5, 0, 0), Rotation3d.kZero));
+    assertEquals(0.7, coupled.getX(), 1e-9);
+    assertEquals(0.0, coupled.getY(), 1e-9);
+
+    // A null linkage offset behaves exactly like the 2-arg resolveMount (offset = none).
+    Pose3d noOffset = MechanismVisuals3d.resolveMount(
+        new Pose3d(0.2, 0, 0, Rotation3d.kZero), () -> parent, null);
+    assertEquals(0.2, noOffset.getX(), 1e-9);
+  }
+
+  @Test
+  void followerMarkerIsEmptyWhenNoFollowerIsPresent() {
+    Pose3d mount = new Pose3d(0, 0, 0.5, Rotation3d.kZero);
+    assertTrue(MechanismVisuals3d.followerMarker(
+            false, mount, new Translation3d(0, 0.1, 0), 0, 0.04, "follower", "#8b949e")
+        .isEmpty());
+  }
+
+  @Test
+  void followerMarkerDrawsACrossAtItsOffset() {
+    // Identity mount: the marker is a cross in the X-Z plane centered at mount + offset.
+    Pose3d mount = new Pose3d(1.0, 0.0, 0.5, Rotation3d.kZero);
+    Translation3d offset = new Translation3d(0, 0.2, 0.1); // along plane-normal (+Y) and up
+    List<Segment> cross = MechanismVisuals3d.followerMarker(
+        true, mount, offset, 0, 0.04, "follower", "#8b949e");
+    assertEquals(2, cross.size(), "a cross is two diameter segments");
+
+    Translation3d center = new Translation3d(1.0, 0.2, 0.6); // mount + offset
+    // Spoke 0 (spin 0) lies along the plane's horizontal axis (robot X), through center.
+    Segment horizontal = cross.get(0);
+    assertEquals(0.0, horizontal.start().getDistance(new Translation3d(0.96, 0.2, 0.6)), 1e-6);
+    assertEquals(0.0, horizontal.end().getDistance(new Translation3d(1.04, 0.2, 0.6)), 1e-6);
+    // Both spokes pass through the same center (midpoint of each diameter).
+    for (Segment s : cross) {
+      Translation3d mid = s.start().plus(s.end()).div(2);
+      assertEquals(0.0, mid.getDistance(center), 1e-6, "every spoke is centered on the marker");
+    }
+  }
+
+  @Test
+  void followerMarkerSpinRotatesTheCross() {
+    // A non-zero spin must move the spoke endpoints — that is the animation.
+    Pose3d mount = new Pose3d(0, 0, 0.5, Rotation3d.kZero);
+    Translation3d offset = new Translation3d(0, 0.1, 0);
+    Translation3d still = MechanismVisuals3d.followerMarker(
+        true, mount, offset, 0, 0.04, "follower", "#8b949e").get(0).end();
+    Translation3d spun = MechanismVisuals3d.followerMarker(
+        true, mount, offset, Math.PI / 4, 0.04, "follower", "#8b949e").get(0).end();
+    assertTrue(still.getDistance(spun) > 1e-3, "spinning the follower must move its spokes");
+  }
+
+  @Test
+  void mechanismWithAFollowerPublishesAFollowerMarker() {
+    // ExampleElevator is configured with a follower; its periodic() must emit a marker.
+    var elevator = new ExampleElevator();
+    try {
+      elevator.periodic();
+      assertTrue(
+          MechanismVisuals3d.getSegments("ExampleElevator").stream()
+              .anyMatch(s -> "follower".equals(s.label())),
+          "a configured follower must publish a 'follower' marker segment");
+    } finally {
+      elevator.close();
+    }
+  }
+
+  @Test
   void childMechanismRidesItsParentsEndpoint() {
     // The coupled demo: an arm mounted on an elevator carriage. The arm's base must sit
     // exactly at the elevator's live attachment pose (the carriage), not its own

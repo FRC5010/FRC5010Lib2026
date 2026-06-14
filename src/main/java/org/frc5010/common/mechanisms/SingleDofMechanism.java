@@ -1,5 +1,7 @@
 package org.frc5010.common.mechanisms;
 
+import edu.wpi.first.math.geometry.Pose3d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
@@ -132,6 +134,29 @@ public abstract class SingleDofMechanism extends SubsystemBase implements AutoCl
   /** Current velocity in native units/s (from the replay-safe inputs). */
   protected double velocityNative() {
     return inputs.velocityRotPerSec * params.nativePerRot;
+  }
+
+  /**
+   * Appends a follower-motor marker to a mechanism's published 3D segments when a
+   * follower is configured ({@code followerCanId >= 0}). A follower shares the lead's
+   * shaft, so it draws as a small spinner at {@code offset} from the resolved mount,
+   * turning with the lead-shaft rotation (negated when the follower opposes the lead)
+   * if {@code animated}, or static otherwise. No-op when no follower is configured.
+   *
+   * @param segments      the mutable segment list being built for this cycle
+   * @param mount         the mechanism's resolved mount pose
+   * @param followerCanId the follower CAN ID (&lt; 0 = none)
+   * @param offset        follower position relative to the mount, mount-local meters
+   * @param animated      true to spin the marker with the motor
+   * @param opposed       true if the follower is mounted opposing the lead
+   */
+  protected void appendFollowerMarker(
+      java.util.List<MechanismVisuals3d.Segment> segments, Pose3d mount, int followerCanId,
+      Translation3d offset, boolean animated, boolean opposed) {
+    double spin = animated ? inputs.positionRot * 2 * Math.PI * (opposed ? -1 : 1) : 0;
+    segments.addAll(MechanismVisuals3d.followerMarker(
+        followerCanId >= 0, mount, offset, spin,
+        MechanismVisuals3d.FOLLOWER_MARKER_RADIUS, "follower", MechanismVisuals3d.FOLLOWER_COLOR));
   }
 
   /** Logs the goal each cycle in subclass-friendly units. */

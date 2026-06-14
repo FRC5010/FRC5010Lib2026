@@ -14,7 +14,9 @@ import com.ctre.phoenix6.signals.GravityTypeValue;
 import edu.wpi.first.math.filter.Debouncer;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
+import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.units.measure.Current;
@@ -32,6 +34,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+import java.util.List;
 import java.util.Set;
 import org.frc5010.common.robot.RobotMode;
 import org.littletonrobotics.junction.Logger;
@@ -57,6 +60,15 @@ public class Elevator extends SingleDofMechanism {
     public int followerCanId = -1;
     /** True if the follower is mounted opposing the lead motor. */
     public boolean followerOpposed = false;
+    /**
+     * 3D position of the follower motor relative to this mechanism's mount, in the
+     * mount's local frame (x = plane horizontal, y = plane normal, z = plane vertical),
+     * meters. Only drawn when {@link #followerCanId} is set — lets the follower appear
+     * at its real spot (e.g. the opposite side of the gearbox) instead of on the lead.
+     */
+    public Translation3d followerVisualOffset = new Translation3d(0, 0.1, 0);
+    /** Spin the follower's 3D marker with the shaft (false = static marker). */
+    public boolean followerAnimated = true;
     /** Motor physics model (count = motors on the gearbox, including the follower). */
     public DCMotor motorModel = DCMotor.getKrakenX60(1);
     /** Gear reduction stages, rotor → mechanism (e.g. {4, 3} = 12:1). */
@@ -118,6 +130,13 @@ public class Elevator extends SingleDofMechanism {
      * the parent's {@code attachmentPose} method reference.
      */
     public java.util.function.Supplier<Pose3d> visualParent = null;
+    /**
+     * Structural offset from the parent's endpoint to where this mechanism attaches,
+     * expressed in the parent's attachment frame (the bracket/standoff carrying it off
+     * the parent). Applied before {@link #visualPose3d} when {@link #visualParent} is
+     * set; identity (default) mounts straight on the parent's endpoint.
+     */
+    public Transform3d visualParentOffset = new Transform3d();
     // --- Homing (current-spike zeroing; see homeCommand()) ---
     /** Voltage applied while homing toward the bottom hard stop (negative = down). */
     public Voltage homingVoltage = Volts.of(-1.5);
@@ -326,8 +345,9 @@ public class Elevator extends SingleDofMechanism {
     carriageLigament.setLength(height);
     goalLigament.setLength(goal);
 
-    Pose3d mount = MechanismVisuals3d.resolveMount(settings.visualPose3d, settings.visualParent);
-    MechanismVisuals3d.publish(settings.name, java.util.List.of(
+    Pose3d mount = MechanismVisuals3d.resolveMount(
+        settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
+    var segments = new java.util.ArrayList<MechanismVisuals3d.Segment>(List.of(
         new MechanismVisuals3d.Segment("frame",
             MechanismVisuals3d.planarPoint(mount, 0, settings.minHeight.in(Meters)),
             MechanismVisuals3d.planarPoint(mount, 0, settings.maxHeight.in(Meters)),
@@ -340,6 +360,9 @@ public class Elevator extends SingleDofMechanism {
             MechanismVisuals3d.planarPoint(mount, -0.1, height),
             MechanismVisuals3d.planarPoint(mount, 0.1, height),
             "#58a6ff", 3)));
+    appendFollowerMarker(segments, mount, settings.followerCanId,
+        settings.followerVisualOffset, settings.followerAnimated, settings.followerOpposed);
+    MechanismVisuals3d.publish(settings.name, segments);
   }
 
   /** Command: drive the carriage to the given height. Never finishes. */
@@ -418,7 +441,8 @@ public class Elevator extends SingleDofMechanism {
    * as another mechanism's {@code visualParent} to ride the carriage in the 3D view.
    */
   public Pose3d attachmentPose() {
-    Pose3d mount = MechanismVisuals3d.resolveMount(settings.visualPose3d, settings.visualParent);
+    Pose3d mount = MechanismVisuals3d.resolveMount(
+        settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
     return new Pose3d(
         MechanismVisuals3d.planarPoint(mount, 0, positionNative()), mount.getRotation());
   }

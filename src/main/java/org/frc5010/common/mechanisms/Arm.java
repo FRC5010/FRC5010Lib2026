@@ -17,6 +17,7 @@ import static edu.wpi.first.units.Units.Volts;
 import com.ctre.phoenix6.signals.GravityTypeValue;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
+import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.system.plant.DCMotor;
@@ -65,6 +66,15 @@ public class Arm extends SingleDofMechanism {
     public int followerCanId = -1;
     /** True if the follower is mounted opposing the lead motor. */
     public boolean followerOpposed = false;
+    /**
+     * 3D position of the follower motor relative to this mechanism's mount, in the
+     * mount's local frame (x = plane horizontal, y = plane normal, z = plane vertical),
+     * meters. Only drawn when {@link #followerCanId} is set — lets the follower appear
+     * at its real spot (e.g. the opposite side of the gearbox) instead of on the lead.
+     */
+    public Translation3d followerVisualOffset = new Translation3d(0, 0.1, 0);
+    /** Spin the follower's 3D marker with the shaft (false = static marker). */
+    public boolean followerAnimated = true;
     /** CAN ID of a fused CANcoder mounted 1:1 on the joint; −1 = rotor sensor. */
     public int cancoderId = -1;
     /** CANcoder reading at the arm's zero (horizontal), for the magnet offset. */
@@ -125,6 +135,13 @@ public class Arm extends SingleDofMechanism {
      * so the arm rides another mechanism's moving endpoint (e.g. an elevator carriage).
      */
     public java.util.function.Supplier<Pose3d> visualParent = null;
+    /**
+     * Structural offset from the parent's endpoint to where this mechanism attaches,
+     * expressed in the parent's attachment frame (the bracket/standoff carrying it off
+     * the parent). Applied before {@link #visualPose3d} when {@link #visualParent} is
+     * set; identity (default) mounts straight on the parent's endpoint.
+     */
+    public Transform3d visualParentOffset = new Transform3d();
     // --- LQR weights (live-tunable in DEGREES; these are the initial values) ---
     /** Position error tolerance. Smaller = more aggressive. */
     public Angle qelmsPosition = Degrees.of(1.5);
@@ -322,15 +339,19 @@ public class Arm extends SingleDofMechanism {
     armLigament.setAngle(Math.toDegrees(positionNative()));
     goalLigament.setAngle(Math.toDegrees(goalRad));
 
-    Pose3d mount = MechanismVisuals3d.resolveMount(settings.visualPose3d, settings.visualParent);
+    Pose3d mount = MechanismVisuals3d.resolveMount(
+        settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
     double lengthM = settings.length.in(Meters);
     Translation3d base = MechanismVisuals3d.planarPoint(mount, 0, 0);
-    MechanismVisuals3d.publish(settings.name, java.util.List.of(
+    var segments = new java.util.ArrayList<MechanismVisuals3d.Segment>(java.util.List.of(
         new MechanismVisuals3d.Segment("goal", base,
             MechanismVisuals3d.planarOffset(mount, base, goalRad, lengthM), "#ffffff", 1),
         new MechanismVisuals3d.Segment("arm", base,
             MechanismVisuals3d.planarOffset(mount, base, positionNative(), lengthM),
             "#ffa657", 3)));
+    appendFollowerMarker(segments, mount, settings.followerCanId,
+        settings.followerVisualOffset, settings.followerAnimated, settings.followerOpposed);
+    MechanismVisuals3d.publish(settings.name, segments);
   }
 
   /** Command: drive the arm to the given angle. Never finishes. */
@@ -375,7 +396,8 @@ public class Arm extends SingleDofMechanism {
    * as another mechanism's {@code visualParent}.
    */
   public Pose3d attachmentPose() {
-    Pose3d mount = MechanismVisuals3d.resolveMount(settings.visualPose3d, settings.visualParent);
+    Pose3d mount = MechanismVisuals3d.resolveMount(
+        settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
     Translation3d base = MechanismVisuals3d.planarPoint(mount, 0, 0);
     Translation3d tip =
         MechanismVisuals3d.planarOffset(mount, base, positionNative(), settings.length.in(Meters));

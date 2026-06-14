@@ -53,6 +53,16 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     public int followerCanId = -1;
     /** True if the follower is mounted opposing the lead motor. */
     public boolean followerOpposed = false;
+    /**
+     * 3D position of the follower motor relative to this mechanism's mount, in the
+     * mount's local frame (x = plane horizontal, y = plane normal, z = plane vertical),
+     * meters. Only drawn when {@link #followerCanId} is set — lets the follower appear
+     * at its real spot (e.g. the opposite side of the wheel) instead of on the lead.
+     */
+    public edu.wpi.first.math.geometry.Translation3d followerVisualOffset =
+        new edu.wpi.first.math.geometry.Translation3d(0, 0.1, 0);
+    /** Spin the follower's 3D marker with the shaft (false = static marker). */
+    public boolean followerAnimated = true;
     /** Drop the goal when the robot is disabled (stay spun down on re-enable). */
     public boolean clearGoalOnDisable = false;
     /** Motor physics model. */
@@ -92,6 +102,14 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
      * so the flywheel rides another mechanism's moving endpoint (e.g. an arm tip).
      */
     public java.util.function.Supplier<edu.wpi.first.math.geometry.Pose3d> visualParent = null;
+    /**
+     * Structural offset from the parent's endpoint to where this mechanism attaches,
+     * expressed in the parent's attachment frame (the bracket/standoff carrying it off
+     * the parent). Applied before {@link #visualPose3d} when {@link #visualParent} is
+     * set; identity (default) mounts straight on the parent's endpoint.
+     */
+    public edu.wpi.first.math.geometry.Transform3d visualParentOffset =
+        new edu.wpi.first.math.geometry.Transform3d();
     // --- LQR weights (live-tunable in RPM; these are the initial values) ---
     /** Velocity error tolerance. Smaller = more aggressive. */
     public AngularVelocity qelmsVelocity = RadiansPerSecond.of(8);
@@ -328,7 +346,8 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
         RadiansPerSecond.of(mode == OutputMode.GOAL ? goalRadPerSec : getVelocityRadPerSec()).in(RPM));
     wheelLigament.setAngle(inputs.positionRot * 360.0); // spins with the wheel
 
-    var mount = MechanismVisuals3d.resolveMount(settings.visualPose3d, settings.visualParent);
+    var mount = MechanismVisuals3d.resolveMount(
+        settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
     double radius = settings.diameter.in(Meters) / 2;
     // Speedometer dial: 0 speed points straight down, full speed points up. Positive
     // speed sweeps the needle CCW (up the right side), negative sweeps CW (up the left),
@@ -347,6 +366,13 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     segments.add(new MechanismVisuals3d.Segment("needle", center,
         MechanismVisuals3d.planarOffset(mount, center, needleRad, radius * 0.92),
         "#7ee787", 3));
+    // A follower shares the lead's shaft — spin its marker with the wheel.
+    double followerSpin = settings.followerAnimated
+        ? inputs.positionRot * 2 * Math.PI * (settings.followerOpposed ? -1 : 1)
+        : 0;
+    segments.addAll(MechanismVisuals3d.followerMarker(
+        settings.followerCanId >= 0, mount, settings.followerVisualOffset, followerSpin,
+        MechanismVisuals3d.FOLLOWER_MARKER_RADIUS, "follower", MechanismVisuals3d.FOLLOWER_COLOR));
     MechanismVisuals3d.publish(settings.name, segments);
   }
 
@@ -409,7 +435,8 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
    * {@code flywheel::attachmentPose} as another mechanism's {@code visualParent}.
    */
   public edu.wpi.first.math.geometry.Pose3d attachmentPose() {
-    return MechanismVisuals3d.resolveMount(settings.visualPose3d, settings.visualParent);
+    return MechanismVisuals3d.resolveMount(
+        settings.visualPose3d, settings.visualParent, settings.visualParentOffset);
   }
 
   /** Stops control and frees the CAN device. For unit tests. */
