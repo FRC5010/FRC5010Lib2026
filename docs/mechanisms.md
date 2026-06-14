@@ -1,9 +1,13 @@
-# Mechanisms — YAMS + LQR
+# Mechanisms — TalonFX-native, LQR-first
 
-This library wraps [YAMS](https://github.com/Yet-Another-Software-Suite/YAMS)
-("Yet Another Mechanism System", vendordep `yams.json`, version 2026.4.10.3) to give
-teams declarative, simulation-ready mechanism subsystems with **state-space LQR
-control** and live NetworkTables tuning.
+Declarative, simulation-ready mechanism subsystems built directly on Phoenix 6
+TalonFX — no third-party mechanism library. Teams fill in a `Settings` object and get
+a subsystem with **state-space LQR or profiled-PID control**, AdvantageKit replay, a
+physics sim, a Mechanism2d view, SysId, and live NetworkTables tuning.
+
+> This branch replaces the YAMS-based implementation: same Settings/commands/examples
+> API, but TalonFX-only and self-contained. The closed loop runs synchronously in
+> `periodic()` — no Notifier threads, no async test pumps, no published-jar bugs.
 
 ## Architecture
 
@@ -11,58 +15,68 @@ control** and live NetworkTables tuning.
 Settings (public fields — robot-specific numbers ONLY, incl. controlStyle)
    │
    ▼
-Common wrapper (org.frc5010.common.mechanisms)        Controller (ControlStyle.LQR default)
- ├── YamsElevator        ─ ELEVATOR-type LQR (meters) + trapezoid profile + kG FF
- ├── YamsArm             ─ ARM-type LQR (rotations) + trapezoid profile + kG·cos(θ) FF
- ├── YamsPivot           ─ ARM-type LQR (no gravity FF) — turrets, hoods, wrists
- ├── YamsFlywheel        ─ FLYWHEEL-type LQR (velocity, plant-inversion FF built in)
+Subsystem (org.frc5010.common.mechanisms)             Controller (ControlStyle.LQR default)
+ ├── SingleDofMechanism (abstract) ─ shared engine: goal state machine, profile+LQR or
+ │    MotionMagic dispatch, live tuning, enable/disable transitions, disconnect Alert
+ ├── Elevator   ─ ELEVATOR plant (meters) + trapezoid profile + kG FF + current-spike homing
+ ├── Arm        ─ ARM plant (radians) + trapezoid profile + kG·cos(θ) FF
+ ├── Pivot      ─ ARM plant, no gravity FF — turrets, hoods, wrists
+ ├── Flywheel   ─ velocity plant (plant-inversion FF built in)
  │     └── ...or ControlStyle.PROFILED_PID on any of the four above:
- │         trapezoid profile + kP/kI/kD + kS/kV/kG FF (TalonFX: onboard MotionMagic /
- │         VelocityVoltage; gains in mechanism rotations)
- ├── YamsDoubleJointedArm ─ profiled PID per joint (LQR doesn't model coupled joints)
- └── YamsDifferentialMechanism ─ profiled PID per motor (tilt + twist)
+ │         onboard MotionMagic / VelocityVoltage at 1 kHz with Slot0 kP/kI/kD/kS/kV/kG
+ │         (gains in mechanism rotations)
+ ├── DoubleJointedArm      ─ onboard MotionMagic per joint (LQR doesn't model coupled joints)
+ └── DifferentialMechanism ─ onboard MotionMagic per motor (tilt = avg, twist = diff)
    │
    ▼
-YAMS mechanism (Elevator / Arm / Pivot / FlyWheel / DoubleJointedArm / DifferentialMechanism)
- ├── SmartMotorController wrapper (TalonFX preferred; TalonFXS / SparkMax / SparkFlex via MechanismMotor.Vendor)
- ├── RIO-side closed loop in a 20 ms WPILib Notifier (LQR always runs on the RIO)
- ├── @AutoLog inputs (AdvantageKit replay bubble) — see "AdvantageKit integration" below
- └── Built-in physics sim (ElevatorSim / SingleJointedArmSim / DCMotorSim) + Mechanism2d
+MechanismIO (@AutoLog inputs — the AdvantageKit replay bubble, mechanism rotations)
+ ├── MechanismIOTalonFX      (REAL — Phoenix 6, SensorToMechanismRatio = gearing)
+ ├── MechanismIOTalonFXSim   (SIM — same Phoenix code; sim state fed by a WPILib
+ │                            ElevatorSim / SingleJointedArmSim / FlywheelSim / DCMotorSim
+ │                            via the MechanismSim adapter, like the swerve's
+ │                            ModuleIOTalonFXSim)
+ └── new MechanismIO() {}    (REPLAY — no-op; inputs come from the log)
 ```
 
-**Common vs robot-specific:** all control logic, LQR construction, and tuning plumbing
-live in `org.frc5010.common.mechanisms`. Team code only fills in a `Settings` object —
-see the examples in `src/main/java/frc/robot/mechanisms/`, all Kraken X60 on TalonFX:
+IO selection happens automatically from `RobotMode.get()` — which means **RobotMode
+must be set before constructing a mechanism** (Robot.java does this; tests call
+`RobotMode.set(Mode.SIM)` in setup).
 
-| LQR style (CAN 21–28) | Profiled-PID style (CAN 31–34) |
+**Common vs robot-specific:** all control logic, plant construction, and tuning
+plumbing live in `org.frc5010.common.mechanisms`. Team code only fills in a
+`Settings` object — see the examples in `src/main/java/frc/robot/mechanisms/`,
+all Kraken X60 on TalonFX:
+
+| LQR style (CAN 21–28, 35) | Profiled-PID style (CAN 31–34) |
 |---|---|
 | `ExampleElevator` | `ExampleProfiledElevator` |
 | `ExampleArm` | `ExampleProfiledArm` |
 | `ExampleTurret` | `ExampleProfiledTurret` |
 | `ExampleShooter` | `ExampleProfiledShooter` |
-| `ExampleDoubleJointedArm` (profiled PID — only style) | |
-| `ExampleDifferentialWrist` (profiled PID — only style) | |
+| `ExampleCharacterizedElevator` (kV/kA plant) | |
+| `ExampleDoubleJointedArm` (MotionMagic — only style) | |
+| `ExampleDifferentialWrist` (MotionMagic — only style) | |
 
 ## Choosing a control style
 
 Both styles share the same settings, commands, telemetry, profile limits, and tests —
 switching is `s.controlStyle = ControlStyle.PROFILED_PID;` plus gains.
 
-- **LQR** (default): gains computed from the plant model (motor, gearing, mass/MOI).
-  Tune physical tolerances, not gains — but the model must be accurate, and the loop
-  always runs on the RIO in the YAMS Notifier.
-- **PROFILED_PID**: classic trapezoid profile + kP/kI/kD with kS/kV/kG feedforward.
-  On TalonFX everything runs *onboard* (MotionMagic for position, VelocityVoltage for
-  flywheels; YAMS maps `ElevatorFeedforward`/`ArmFeedforward`/`SimpleMotorFeedforward`
-  into Slot0 kS/kV/kG with the right GravityType). Gains are in **mechanism rotations**
-  (kP = volts per rotation of error), even for elevators. Simpler to reason about,
-  tolerant of model error, 1 kHz onboard execution — but hand-tuned.
-  For flywheels in this style, kV does most of the work (≈ 12 V ÷ free speed in rot/s).
+- **LQR** (default): WPILib `LinearSystemLoop` (LQR gain + Kalman filter +
+  plant-inversion feedforward) computed in `periodic()` at 20 ms, fed by a trapezoid
+  profile, output as a `VoltageOut` request. Tune physical tolerances, not gains — but
+  the plant model (mass/MOI/gearing) must be accurate, or characterize it (below).
+- **PROFILED_PID**: TalonFX onboard MotionMagic (position) / VelocityVoltage
+  (flywheels) at 1 kHz with Slot0 kP/kI/kD/kS/kV/kG and the right GravityType
+  (Elevator_Static / Arm_Cosine). Gains are in **mechanism rotations** (kP = volts per
+  rotation of error), even for elevators. Simpler to reason about and tolerant of
+  model error — but hand-tuned. For flywheels kV does most of the work
+  (≈ 12 V ÷ free speed in rot/s).
 
-## Adding a mechanism (short version — see `/new-yams-mechanism` for the playbook)
+## Adding a mechanism (short version — see `/new-mechanism` for the playbook)
 
 ```java
-public class MyElevator extends YamsElevator {
+public class MyElevator extends Elevator {
   public MyElevator() { super(settings()); }
   private static Settings settings() {
     var s = new Settings();
@@ -81,33 +95,111 @@ public class MyElevator extends YamsElevator {
 ```
 
 Commands: `goToHeight(Distance)` / `goToAngle(Angle)` / `goToSpeed(AngularVelocity)`,
-`setDutyCycle(...)`, `sysId()`; triggers: `isAtHeight` / `isAtAngle` / `isAtSpeed`;
-mechanism access: `getMechanism()` / `getMotor()`.
+`setDutyCycle(...)`, `sysId()` (limit-guarded quasistatic+dynamic), and
+`Elevator.homeCommand()`; triggers: `isAtHeight` / `isAtAngle` / `isAtSpeed`;
+`getSettings()` for start points; `close()` frees the CAN IDs for tests.
 
-## Why LQR (and what to know)
+**Real-robot hardware options** (all in Settings):
+- `followerCanId`/`followerOpposed` — second TalonFX on the same gearbox (set
+  `motorModel = DCMotor.getKrakenX60(2)` so the plant/sim include both motors).
+- Arm/Pivot `cancoderId`/`cancoderOffset` — absolute CANcoder mounted 1:1 on the
+  joint, fused onboard (position correct at power-on, no seeding). Best paired with
+  PROFILED_PID: onboard MotionMagic consumes the fused sensor at 1 kHz
+  (`ExampleProfiledTurret` demonstrates it). The RIO-side LQR adds a sensor hop of
+  latency on top of the fusion — prefer the rotor sensor or onboard control there.
+- `Elevator.homeCommand()` — drives gently into the bottom hard stop with soft limits
+  temporarily disabled, detects a debounced stator-current spike, and re-seeds the
+  sensor to `minHeight`. `homingCurrentThreshold` must sit well below
+  `statorCurrentLimit` (the Talon's limiter caps stall current — a threshold at the
+  limit never triggers; in sim the observable ceiling is ~0.75 × the limit).
+- `enableFoc` (default **true**) — all control requests run with FOC commutation
+  (~15% more torque, smoother low-speed control). Requires Phoenix Pro on the device;
+  unlicensed devices fall back to non-FOC and raise an UnlicensedFeatureInUse fault —
+  non-Pro teams set it false. This is FOC *commutation* on the voltage-based requests
+  (same gains/units as before); torque-current *control* (gains in amps) is a possible
+  future option.
+- `clearGoalOnDisable` — drop the goal when disabled so the mechanism stays put on
+  re-enable instead of driving back to a stale target (default false = resume).
+- Every motor gets a WPILib `Alert` ("<name> TalonFX disconnected") driven by the
+  `connected` input.
+- **Visualization overlay** — by default every mechanism draws onto one shared
+  side-view canvas (SmartDashboard → **RobotMechanisms**), rooted at
+  `visualPosition` (x along the robot's length, y above the floor, meters), so the
+  whole superstructure appears as one robot overlay in Glass/AdvantageScope. Pass
+  your own `Mechanism2d` via `settings.mechanism2d` to split mechanisms onto
+  separate widgets (you publish custom canvases yourself). Mechanism names must be
+  unique (they already must be for tuning tables).
 
-The YAMS docs and examples mostly show plain/profiled **PID** — those examples are out
-of date relative to what the library can do. YAMS ships `yams.math.LQRController`
-(WPILib `LinearSystemLoop` = LQR gain + Kalman filter + plant-inversion feedforward),
-plugged in via `SmartMotorControllerConfig.withClosedLoopController(LQRController)`.
+## 3D visualization (isometric web view + AdvantageScope)
+
+Robots are 3D — an elevator at the back-left and a turret spinning in the horizontal
+plane can't honestly share one side-view plane. Each mechanism therefore also carries
+`settings.visualPose3d`, a full **mount pose** in the robot frame (x forward, y left,
+z up, meters from robot center at floor level):
+
+- The **translation** is where the mechanism sits on the robot.
+- The **rotation** re-aims its working plane (its local X → `planeX`, local Z →
+  `planeUp`). It can face any direction:
+  - **identity** (default) → robot **X-Z** side-view plane (arm swings fore/aft) — the
+    Mechanism2d convention;
+  - `MechanismVisuals3d.YAW_PLANE` → robot **X-Y** (flat): a `Pivot`'s angle becomes a
+    yaw about the vertical axis, i.e. a turret (see `ExampleTurret`);
+  - `MechanismVisuals3d.ROLL_PLANE` → robot **Y-Z**: the mechanism swings side-to-side
+    (a side-mounted deploy). Any other `Rotation3d` works too — these three are just
+    the common cases.
+
+**Coupled mechanisms.** When one mechanism rides another — a small arm on an elevator
+carriage, a flywheel on the arm tip — set the child's `settings.visualParent` to the
+parent's `attachmentPose` method reference (`Elevator`/`Arm`/`Pivot`/`Flywheel` each
+expose one: the carriage, the swinging tip, the wheel centre). With a parent set, the
+child's `visualPose3d` becomes an **offset from the parent's live endpoint** instead of
+an absolute mount, so the child tracks the parent every cycle (raising the elevator
+lifts the whole arm + flywheel assembly). Chains work to any depth. The example robot
+wires `ExampleElevator → ExampleArm → ExampleShooter` as a three-link demo (see
+`ExampleRobot.configureDemoMechanisms`).
+
+Every cycle each mechanism publishes its current 3D line segments (current state in
+its type color, goal ghost in white) into the `MechanismVisuals3d` registry. A
+flywheel instead renders as a **speedometer dial**: the needle points straight down at
+zero and sweeps up as it spins — CCW for positive speed, CW for negative — normalized
+to the wheel's free speed, so sign and magnitude read at a glance. Two renderers
+consume the registry:
+
+1. **Web UI isometric panel** (`-PwebUI`) — the bottom-right overlay on the field
+   page draws the chassis box, the swerve wheels (steered live, line length growing
+   with drive speed), a cyan gyro-heading compass on the floor, and all mechanism
+   segments; drag horizontally to orbit the view, and click the title to collapse it
+   (collapsing stops the poll/draw entirely, handy on narrow screens). Backed by
+   `GET /api/mechanisms3d`. The chassis box and wheels are sized from the drivetrain's
+   bumper dimensions and module layout automatically — no configuration needed. (The
+   drivetrain also publishes a `SwerveDrive` Mechanism2d to SmartDashboard for Glass /
+   AdvantageScope — see [docs/simulation.md](simulation.md).)
+2. **AdvantageScope 3D** — each publish also logs `Pose3d[]` under
+   **Mechanisms3d/\<name\>** (one pose per segment: position at the segment start,
+   X-axis along the segment), ready to attach as articulated components on the 3D
+   field view.
+
+`close()` removes the mechanism from the registry; tests that publish must call
+`MechanismVisuals3d.resetForTesting()` in teardown (see `MechanismVisuals3dTest`).
+
+## LQR tuning
+
 LQR is tuned with *physical tolerances*, not abstract gains:
 
 | Weight | Meaning | Default |
 |---|---|---|
-| `qelmsPosition` | position error you tolerate (m or rot). Smaller = more aggressive | 2 in / 1.5° |
-| `qelmsVelocity` | velocity error you tolerate (m/s or rot/s) | 0.5 m/s / 20°/s |
+| `qelmsPosition` | position error you tolerate (meters or degrees). Smaller = more aggressive | 2 in / 1.5° |
+| `qelmsVelocity` | velocity error you tolerate (m/s, deg/s, or RPM for flywheels) | 0.5 m/s / 20°/s |
 | `relms` | control effort you allow (volts). Smaller = gentler | 12 V |
 
-All three are live-tunable under `/Tuning/<name>/lqr_*` (AdvantageScope / Shuffleboard).
-On change, the wrapper rebuilds the regulator and restarts the loop at the current
-state. In PROFILED_PID style the tunables are `/Tuning/<name>/pid_kP|kI|kD` instead
-(re-applied to the motor on change — lands onboard for TalonFX). See `/tune-mechanism`
-for the full tuning workflow.
+All three are live-tunable under `/Tuning/<name>/lqr_*`; on change the regulator is
+rebuilt and re-seeded at the current state. In PROFILED_PID style the tunables are
+`/Tuning/<name>/pid_kP|kI|kD` (re-applied onboard via `setPidGains`). See
+`/tune-mechanism` for the full workflow.
 
-LQR supports exactly three plants — **ELEVATOR**, **ARM** (also used for pivots), and
-**FLYWHEEL**. DoubleJointedArm and DifferentialMechanism are coupled multi-motor
-systems the LQR types don't model, so those wrappers use profiled PID with
-`TunableGains` (`/Tuning/<name>/<joint>_k*`).
+LQR covers the three single-DOF plants (elevator / arm-or-pivot / flywheel).
+DoubleJointedArm and DifferentialMechanism are coupled multi-motor systems those
+plants don't model, so they use onboard MotionMagic with `TunableGains`.
 
 ## Characterized plants — when you can't (or shouldn't) trust mass/MOI
 
@@ -129,7 +221,7 @@ that. A SysId test **measures** it instead, as two numbers:
 kA is where the mass/inertia "lives": a heavier carriage needs more voltage to
 accelerate, so it shows up as a bigger kA. Friction and gear losses show up too —
 things no spreadsheet model includes. Set `characterizedKv`/`characterizedKa` in the
-settings and the wrapper builds the LQR plant with WPILib's
+settings and `MechanismLqr` builds the plant with WPILib's
 `LinearSystemId.identifyPositionSystem` (or `identifyVelocitySystem` for flywheels)
 instead of the mass-based model. See `ExampleCharacterizedElevator` (CAN 35) for a
 fully-commented walkthrough; the functional test
@@ -139,7 +231,7 @@ fully-commented walkthrough; the functional test
 1. Run the wrapper's `sysId()` command on the real mechanism (tethered, clear travel).
 2. Open the log in the WPILib SysId tool. Units: **meters** for elevators,
    **rotations** for arms/pivots/flywheels (the settings expect those units; the
-   wrapper converts to the plant's radians internally).
+   subsystem converts to the plant's radians internally).
 3. Copy kV and kA into `characterizedKv` / `characterizedKa`. Keep kG from the same
    run — gravity is a constant force, not part of the linear plant, so it stays a
    feedforward either way.
@@ -160,72 +252,71 @@ the model error the characterized plant eliminates.
 
 ## Gotchas (hard-won)
 
-1. **YAMS 2026.4.10.3 ships a broken Kalman filter for ARM/ELEVATOR LQR.**
-   `LQRConfig.getKalmanFilter` passes WPILib's 2-output plant with a 1-dim measurement
-   noise vector; the native DARE solver reads garbage ("R was not symmetric", or—worse—
-   silently useless gains, mechanism barely moves). Fixed upstream on main but not
-   released. `MechanismLqrConfig` overrides `getKalmanFilter` with the correct
-   `plant.slice(0)`. **Always build LQR configs through `MechanismLqrConfig`**, never
-   raw `LQRConfig`, or retuning will go through the broken path. FLYWHEEL (1-state) is
-   unaffected.
+1. **Set `RobotMode` before constructing any mechanism.** IO selection
+   (REAL/SIM/REPLAY) reads `RobotMode.get()`, which throws if unset — by design, to
+   catch ordering bugs at startup. Tests: `RobotMode.set(Mode.SIM)` in setup,
+   `RobotMode.resetForTesting()` in teardown.
 
-2. **The LQR closed loop must run in the units of its plant.** The ELEVATOR plant is in
-   meters: `withMechanismCircumference(...)` + a linear trapezoid profile (or
-   `ElevatorFeedforward`) put the YAMS loop in linear mode. Without it, the loop feeds
-   rotations into a meters model and slams the mechanism.
+2. **Profile cruise velocity must be physically achievable** (below
+   free speed ÷ gearing × circumference). The profile doesn't know about saturation;
+   if it outruns the mechanism the controller chases an unreachable reference and
+   overshoots badly. Same for arms/pivots in rotational units.
 
-3. **`withClosedLoopController(lqr)` must be LAST in the config chain.** Every
-   PID-flavored `withClosedLoopController(...)` overload clears the stored LQR.
+3. **kG feedforward is required for elevators/arms.** The linearized LQR plants have
+   no gravity term and LQR has no integrator, so uncompensated gravity = steady-state
+   error. In LQR style kG is added on the RIO (constant for elevators, ×cos(θ) for
+   arms); in PROFILED_PID style it runs onboard via the Slot0 GravityType.
 
-4. **Profile cruise velocity must be physically achievable** (below
-   free speed ÷ gearing × circumference). The profile doesn't know about saturation; if
-   it outruns the mechanism the LQR chases an unreachable reference and overshoots
-   badly. Same for arms/pivots in rotational units.
+4. **No kV feedforward in LQR style** — the `LinearSystemLoop` provides plant
+   inversion; adding kV would double-apply. (PROFILED_PID flywheels *need* kV.)
 
-5. **kG feedforward is required for elevators/arms.** The linearized LQR plants have no
-   gravity term and LQR has no integrator, so uncompensated gravity = steady-state
-   error. Get kG from `sysId()` on the real robot (the examples compute it from motor
-   constants for sim). YAMS only applies `ArmFeedforward` when a motion profile is
-   configured — keep the trapezoid profile on arms.
+5. **WPILib position plants have two outputs but only position is measured** —
+   `MechanismLqr` builds the Kalman filter on `plant.slice(0)`. If you construct
+   loops by hand, do the same or the native DARE solver reads garbage
+   ("R was not symmetric").
 
-6. **No `withClosedLoopTolerance` with LQR** — YAMS throws by design.
+6. **Tests: feed the Phoenix sim, in two ways.** (a) The enable watchdog: TalonFX
+   outputs silently neutral (duty 0, no error) if fresh DS packets stop for ~100 ms
+   real time — call `DriverStationSim.notifyNewData()` + `Unmanaged.feedEnable(...)`
+   every cycle. (b) The device thread: the simulated TalonFX processes control
+   requests on a real-time thread, so a paused-clock loop running flat out starves it —
+   sleep a few ms per cycle (`MechanismsFunctionalTest.runScheduledFor`). Plain
+   synchronous `stepOneCycle()` is otherwise fine — there are no Notifier threads in
+   this design.
 
-7. **Tests: never use synchronous `SimHooks.stepTiming` with YAMS mechanisms.** The
-   YAMS closed loop lives in a Notifier; synchronous stepping deadlocks waiting for an
-   alarm ack. Pump with `stepTimingAsync(0.02)` + ~10 ms real sleep
-   (see `YamsMechanismsFunctionalTest.runScheduledFor`).
+7. **Homing threshold vs. current limit.** `homingCurrentThreshold` ≥
+   `statorCurrentLimit` can never trigger — the Talon's limiter caps the stall
+   current below it (and Phoenix's motor model differs slightly from WPILib's, so in
+   sim the ceiling reads ~0.75 × the limit). Default 25 A against a 40 A limit.
 
-8. **Tests: feed the Phoenix enable watchdog.** TalonFX outputs silently neutral (duty
-   reads 0, no error) if fresh DS packets stop for ~100 ms of *real* time. Call
-   `DriverStationSim.notifyNewData()` + `Unmanaged.feedEnable(...)` every test cycle.
+8. **Fused CANcoder + RIO-side LQR don't mix well in sim.** The fusion adds a sensor
+   hop of latency that destabilizes an aggressive 20 ms LQR. Use the CANcoder with
+   PROFILED_PID (onboard MotionMagic consumes it natively at 1 kHz) or keep the rotor
+   sensor for LQR mechanisms.
 
-9. **The released jar's API differs from YAMS GitHub main** (e.g. `withSoftLimit` vs
-   `withSoftLimits`, `ArmConfig.withHardLimit` vs `withHardLimits`). When in doubt,
-   `javap` the jar in the Gradle cache, not the GitHub source.
+9. **Mechanism rotations are the IO unit.** `SensorToMechanismRatio` = gearing, so
+   soft limits, MotionMagic constraints, and onboard gains are all in mechanism
+   rotations (drum rotations for elevators). Subsystems convert to meters/radians at
+   the boundary; getters return WPILib units.
 
 ## AdvantageKit integration
 
-Each wrapper follows the YAMS AdvantageKit pattern (the upstream
-`examples/advantage_kit` project): everything read back from the motor/mechanism
-crosses the replay bubble through an `@AutoLog` inputs class.
+The replay bubble is the IO layer, exactly like the swerve drive:
 
-- **Inputs** (`<Mechanism>Inputs`, nested in each wrapper): position, velocity,
-  closed-loop setpoint, applied volts, stator current — per motor for the dual-motor
-  mechanisms. Fields are `double` with unit-suffixed names (`positionMeters`,
-  `velocityRPM`, ...) per this repo's convention — never `Measure<>` in `@AutoLog`
-  (CLAUDE.md gotcha #9; the upstream example uses `Distance` fields, don't copy that).
-- **`periodic()`** runs `updateInputs()` → `Logger.processInputs(name, inputs)` before
-  tuning and YAMS telemetry, so every cycle's state lands in the `.wpilog`.
-- **Getters are replay-safe**: `getHeight()`, `getAngle()`, `getSpeed()`, `getTilt()`,
-  etc. read from the *inputs* object, not the hardware — in REPLAY mode they return
-  the logged values. The `isAt...` triggers are built on the inputs too. Anything that
-  must survive replay should go through these getters; `getMechanism()` bypasses the
-  bubble (live sim/hardware only).
-- **Commands record their targets** as outputs (`<name>/CommandedHeightMeters`, ...),
-  so commanded vs. actual is directly plottable in AdvantageScope.
+- `MechanismIO.MechanismIOInputs` (`@AutoLog`, `double` fields per repo convention —
+  never `Measure<>`): connected, positionRot, velocityRotPerSec, appliedVolts,
+  statorCurrentAmps. Dual-motor mechanisms log one inputs set per motor
+  (`<name>/Lower`, `<name>/Upper` or `/Left`, `/Right`).
+- `periodic()` runs `io.updateInputs(inputs)` → `Logger.processInputs(name, inputs)`
+  before control, so every cycle's state lands in the `.wpilog` in all modes.
+- **Getters and triggers are replay-safe**: `getHeight()`, `getAngle()`, `getSpeed()`,
+  `getTilt()`/`getTwist()`, `isAt...` all read the inputs object. In REPLAY the no-op
+  IO leaves inputs to the log, and the RIO-side LQR recomputes its outputs
+  deterministically from the replayed inputs.
+- Goals and commanded targets are recorded as outputs (`<name>/GoalMeters`,
+  `<name>/CommandedHeightMeters`, ...), so commanded-vs-actual is directly plottable.
 
-After changing what the mechanisms log, run `/validate-replay` to confirm replay
-fidelity end-to-end.
+After changing what the mechanisms log, run `/validate-replay`.
 
 ## Try them in the sim
 
@@ -234,25 +325,31 @@ IDs don't exist on a real robot) and binds the **X button** to drive them all to
 mid-travel point in parallel (elevators → 0.75 m, arms/turrets → 90°, shooters →
 3000 RPM, DJA → 90°/0°, wrist → 45°/30°); releasing X returns everything to its
 configured start point (read from each mechanism's `getSettings()`, flywheels spin
-down to 0). Run `./gradlew simulateJava`, enable,
-press X, and watch the Mechanism2d widgets under SmartDashboard →
-`<name>/mechanism`. Tests that construct `RobotContainer` must call
-`SwerveRobotContainer.closeMechanisms()` in teardown and pump time asynchronously
-(see gotcha 7) — `RobotContainerSmokeTest.pumpCycles` is the reference.
+down to 0). Run `./gradlew simulateJava`, enable, press X, and watch the combined robot overlay
+under SmartDashboard → **RobotMechanisms** (the examples set distinct
+`visualPosition`s so the whole superstructure reads as one side view). Tests that construct
+`RobotContainer` must call `SwerveRobotContainer.closeMechanisms()` in teardown.
+
+With `-PwebUI` the same run also shows the **Mechanisms 3D** isometric panel on the
+field page (the examples set distinct `visualPose3d`s — the turrets use `YAW_PLANE`,
+so X visibly swings them in the horizontal plane while the elevators climb). The
+`ExampleArm` and `ExampleShooter` are coupled onto the `ExampleElevator` carriage there
+(see "Coupled mechanisms" above), so pressing X lifts the elevator and the arm +
+flywheel ride up with it — a live demo of parent-child mounting.
 
 ## Functional tests
 
-`src/test/java/frc/robot/mechanisms/YamsMechanismsFunctionalTest.java` builds each
-example subsystem for real (TalonFX wrapper + YAMS sim + closed loop), schedules its
-public command, and asserts the mechanism reaches the commanded state — covering both
-control styles (LQR and profiled PID) plus one live-retune-over-NT test. They run in
-the normal `./gradlew test` suite.
+`src/test/java/frc/robot/mechanisms/MechanismsFunctionalTest.java` builds each
+example subsystem for real (TalonFX IO + Phoenix sim + physics sim + closed loop),
+schedules its public command, and asserts the mechanism reaches the commanded state —
+covering both control styles, the characterized plant, a live retune over NT, and the
+AdvantageKit inputs path. They run in the normal `./gradlew test` suite.
 
 ## Real-robot bring-up
 
 1. Copy an example, set real CAN IDs / gearing / masses / limits.
-2. Verify in sim (`./gradlew test`, or `simulateJava` and watch the Mechanism2d widget
-   under SmartDashboard → `<name>/mechanism`).
+2. Verify in sim (`./gradlew test`, or `simulateJava` and watch the RobotMechanisms
+   overlay — set `visualPosition` to match where the mechanism sits on your robot).
 3. On the robot: run `sysId()` to characterize kG, kV, and kA; set `kG` and (for LQR
    style) `characterizedKv`/`characterizedKa` so the plant matches the real mechanism
    (see "Characterized plants" above).

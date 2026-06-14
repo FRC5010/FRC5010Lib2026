@@ -24,7 +24,7 @@ import org.frc5010.common.profiles.SwerveRobotContainer;
 /**
  * Example team robot container for the 2026 Rebuilt season — the template teams copy.
  * Extends {@link SwerveRobotContainer} with hardware constants ({@link ExampleRobotProfile}),
- * the {@link DemoIntake} demo, and the YAMS demo mechanisms.
+ * the {@link DemoIntake} demo, and the demo mechanisms.
  *
  * <p>Auto registration is handled in {@link #buildAutos()}, which the base class schedules
  * automatically on the first scheduler tick (disabled, before the first autonomous mode).
@@ -103,7 +103,7 @@ public class ExampleRobot extends SwerveRobotContainer {
   }
 
   /**
-   * Instantiates every YAMS example mechanism (sim only — CAN 21–35 don't exist on the
+   * Instantiates every example mechanism (sim only — CAN 21–35 don't exist on the
    * real robot; a competition robot would create just its own mechanisms, outside the
    * sim guard) and binds X to drive them all to a mid-travel point at once. Watch them
    * under SmartDashboard → {@code <name>/mechanism} or in AdvantageScope.
@@ -120,6 +120,16 @@ public class ExampleRobot extends SwerveRobotContainer {
     var profiledTurret = new ExampleProfiledTurret();
     var profiledShooter = new ExampleProfiledShooter();
     var characterizedElevator = new ExampleCharacterizedElevator();
+
+    // Coupled-mechanism demo: the arm rides the elevator carriage and the shooter rides
+    // the arm tip — a three-link chain. Each child's visualParent points at its parent's
+    // live attachmentPose(), so in the 3D view raising the elevator lifts the whole
+    // arm+shooter assembly and swinging the arm carries the shooter with it. (With a
+    // parent set, visualPose3d is the offset from the parent's endpoint; zero = on it.)
+    arm.getSettings().visualParent = elevator::attachmentPose;
+    arm.getSettings().visualPose3d = new edu.wpi.first.math.geometry.Pose3d();
+    shooter.getSettings().visualParent = arm::attachmentPose;
+    shooter.getSettings().visualPose3d = new edu.wpi.first.math.geometry.Pose3d();
 
     demoElevator = elevator;
     registerMechanism(() -> demoElevator = null);

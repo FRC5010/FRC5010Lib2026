@@ -8,8 +8,7 @@ import static edu.wpi.first.units.Units.MetersPerSecondPerSecond;
 import static edu.wpi.first.units.Units.Volts;
 
 import edu.wpi.first.math.system.plant.DCMotor;
-import org.frc5010.common.mechanisms.MechanismMotor;
-import org.frc5010.common.mechanisms.YamsElevator;
+import org.frc5010.common.mechanisms.Elevator;
 
 /**
  * The same elevator as {@link ExampleElevator}, but the LQR plant is built from
@@ -48,7 +47,7 @@ import org.frc5010.common.mechanisms.YamsElevator;
  * functional test verifies that. On a real robot, replace them with the numbers from
  * the SysId tool and the controller will fit reality better than any mass estimate.
  */
-public class ExampleCharacterizedElevator extends YamsElevator {
+public class ExampleCharacterizedElevator extends Elevator {
 
   /** CAN ID of the elevator TalonFX. */
   public static final int CAN_ID = 35;
@@ -60,7 +59,6 @@ public class ExampleCharacterizedElevator extends YamsElevator {
   private static Settings settings() {
     var s = new Settings();
     s.name = "ExampleCharacterizedElevator";
-    s.vendor = MechanismMotor.Vendor.TALON_FX;
     s.canId = CAN_ID;
     s.motorModel = DCMotor.getKrakenX60(1);
     s.gearReductionStages = new double[] {4, 3}; // 12:1
@@ -74,6 +72,9 @@ public class ExampleCharacterizedElevator extends YamsElevator {
     s.maxVelocity = MetersPerSecond.of(0.9);
     s.maxAcceleration = MetersPerSecondPerSecond.of(2.0);
     s.kG = Volts.of(0.19); // gravity is not part of the linear plant — still from SysId
+    s.visualPosition = new edu.wpi.first.math.geometry.Translation2d(0.85, 0.0); // spot on the RobotMechanisms overlay
+    s.visualPose3d = new edu.wpi.first.math.geometry.Pose3d(-0.25, 0.25, 0,
+        edu.wpi.first.math.geometry.Rotation3d.kZero); // back-left corner, 3D view
 
     // From the SysId tool (units: meters). These two numbers REPLACE the mass-based
     // plant — see the class javadoc for why.

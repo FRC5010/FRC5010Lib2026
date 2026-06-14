@@ -75,19 +75,42 @@
 
   /* ---- canvas wrapper (flex:1, hosts the sidebar overlay) ---- */
   #canvas-wrap { flex: 1; min-width: 0; position: relative; }
+  /* Held / scored counters — a compact panel pinned to the TOP-RIGHT, clear of the
+     3D mechanism panel in the bottom-right corner. */
   #field-sidebar {
-    position: absolute; right: 0; top: 0; bottom: 0; z-index: 2;
-    width: 60px; background: rgba(20,20,20,0.6);
+    position: absolute; right: 0; top: 0; z-index: 2;
     display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 16px;
+    gap: 10px; padding: 8px 12px;
+    background: rgba(20,20,20,0.7); border-radius: 0 0 0 6px;
     pointer-events: none;
   }
   .stat-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .stat-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
   .stat-value { font-size: 20px; font-weight: bold; }
   #held-count   { color: rgba(245,210,40,0.95); }
   #scored-count { color: rgba(100,230,100,0.95); }
   #field-canvas { display: block; width: 100%; height: 100%; }
+
+  /* ---- 3D mechanisms panel (isometric overlay, bottom-right of the field) ---- */
+  #mech3d-panel {
+    position: absolute; right: 0; bottom: 0; z-index: 2;
+    background: rgba(20,20,20,0.85);
+    border: 1px solid #2a2a2a; border-radius: 6px 0 0 0;
+    display: flex; flex-direction: column;
+  }
+  #mech3d-panel.hidden { display: none; }
+  /* Collapsed: just the title bar remains (a small button), so it gets out of the way
+     of the field on narrow screens — and the poll loop stops fetching/drawing. */
+  #mech3d-panel.collapsed #mech3d-canvas { display: none; }
+  #mech3d-title {
+    font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 1px;
+    text-align: center; padding: 4px 8px; cursor: pointer; user-select: none;
+  }
+  #mech3d-title:hover { color: #ccc; }
+  #mech3d-canvas {
+    display: block; width: 270px; height: 230px;
+    touch-action: none; cursor: grab;
+  }
 
   /* ---- LED strip display (under the field) ---- */
   #led-bar {
@@ -176,6 +199,7 @@
     .bumper-btn  { width: 42px; height: 64px; font-size: 11px; }
     #controls    { height: 180px; gap: 6px; padding: 6px; }
     #ds-panel    { width: 120px; }
+    #mech3d-canvas { width: 190px; height: 160px; }
   }
 
   /* keyboard key hints inside buttons */
@@ -225,6 +249,10 @@
         <div id="scored-count" class="stat-value">0</div>
       </div>
     </div>
+    <div id="mech3d-panel" class="hidden">
+      <div id="mech3d-title" onclick="toggleMech3d()">Mechanisms 3D — drag to rotate ▾</div>
+      <canvas id="mech3d-canvas"></canvas>
+    </div>
     <canvas id="field-canvas"></canvas>
   </div>
 </div>
@@ -261,7 +289,7 @@
 
 // ---- State ----
 const state = {
-  x: 0, y: 0, headingRad: 0,
+  x: 0, y: 0, headingRad: 0, gyroRad: 0,
   maxLinear: 4.5, maxAngular: 6.283,
   fieldWidth: 16.540988, fieldHeight: 8.21,
   enabled: false, alliance: 'Blue', connected: false,
@@ -487,6 +515,146 @@ function updateLeds() {
     cells[i].style.background = col;
     // Lit LEDs glow; off LEDs stay flat dark so animations read clearly.
     cells[i].style.boxShadow = (col === '#000000') ? 'none' : `0 0 6px 1px ${col}`;
+  }
+}
+
+// ---- 3D mechanisms isometric view ----
+// Renders the robot's mechanisms (from /api/mechanisms3d) as a wireframe on a small
+// overlay canvas: chassis box + per-mechanism line segments in robot coordinates
+// (x forward, y left, z up). Drag horizontally to orbit the view about the Z axis.
+const mechCanvas = document.getElementById('mech3d-canvas');
+let mech3d = null;          // last /api/mechanisms3d payload
+let mechViewYaw = -0.6;     // view orbit angle, radians
+let mech3dExpanded = true;  // false = collapsed → loop skips the fetch and the draw
+let mech3dHasContent = false; // robot reported a chassis/mechanisms to draw
+
+// Collapse/expand the 3D panel. While collapsed only the title bar shows (out of the
+// way on narrow screens) and the poll loop stops fetching /api/mechanisms3d entirely.
+function toggleMech3d() { mech3dExpanded = !mech3dExpanded; updateMech3d(); }
+
+// Updates the panel chrome each cycle and (re)draws when expanded. Splitting this from
+// drawMech3d() lets the loop keep the chrome live even when drawing is skipped.
+function updateMech3d() {
+  const panel = document.getElementById('mech3d-panel');
+  panel.classList.toggle('hidden', !mech3dHasContent);
+  panel.classList.toggle('collapsed', !mech3dExpanded);
+  document.getElementById('mech3d-title').textContent =
+      mech3dExpanded ? 'Mechanisms 3D — drag to rotate ▾' : 'Mechanisms 3D ▸';
+  if (mech3dExpanded && mech3dHasContent) drawMech3d();
+}
+
+(() => {
+  let dragging = false, lastX = 0;
+  mechCanvas.addEventListener('pointerdown', e => {
+    dragging = true; lastX = e.clientX; mechCanvas.setPointerCapture(e.pointerId);
+  });
+  mechCanvas.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    mechViewYaw += (e.clientX - lastX) * 0.01;
+    lastX = e.clientX;
+  });
+  mechCanvas.addEventListener('pointerup',     () => { dragging = false; });
+  mechCanvas.addEventListener('pointercancel', () => { dragging = false; });
+})();
+
+// Classic isometric projection after orbiting the robot about Z by the view yaw:
+// u = (x' − y')·cos30°, v = (x' + y')·sin30° − z (screen-down +v). Unscaled.
+function isoUV(p) {
+  const c = Math.cos(mechViewYaw), s = Math.sin(mechViewYaw);
+  const x = p[0] * c - p[1] * s;
+  const y = p[0] * s + p[1] * c;
+  return [(x - y) * 0.8660, (x + y) * 0.5 - p[2]];
+}
+
+function drawMech3d() {
+  const mechs = (mech3d && mech3d.mechanisms) || [];
+  const sw = (mech3d && mech3d.swerve) || [];
+
+  const ctx = mechCanvas.getContext('2d');
+  const W = mechCanvas.width  = mechCanvas.clientWidth;
+  const H = mechCanvas.height = mechCanvas.clientHeight;
+  if (W < 1 || H < 1) return;
+  ctx.clearRect(0, 0, W, H);
+
+  // Chassis box corners; index 0..3 = +x+y, +x−y, −x−y, −x+y (so 0→1 is the front edge).
+  const ch = mech3d.chassis || { length: 0.8, width: 0.8, height: 0.13 };
+  const hx = ch.length / 2, hy = ch.width / 2;
+  const bottom = [[hx, hy, 0], [hx, -hy, 0], [-hx, -hy, 0], [-hx, hy, 0]];
+  const top = bottom.map(p => [p[0], p[1], ch.height]);
+
+  // Each swerve module: a line through the module position (floor level) along its
+  // steer angle, whose length grows with the drive speed — so both the steer direction
+  // and how fast the wheel is rolling read at a glance. Payload: [cx, cy, angle, frac]
+  // where frac is the signed speed as a fraction of the drivetrain's max speed.
+  const wr = (ch.wheelRadius || 0.05);
+  const wheels = sw.map(m => {
+    const [cx, cy, ang, frac] = m;
+    const half = wr * 0.5 + Math.abs(frac || 0) * ch.length * 0.35;
+    const dx = Math.cos(ang) * half, dy = Math.sin(ang) * half;
+    return [[cx - dx, cy - dy, 0], [cx + dx, cy + dy, 0]];
+  });
+
+  // Gyro compass on the floor: a needle pointing toward field-forward in the robot
+  // frame (state.gyroRad), so it sweeps around the chassis as the robot's heading
+  // changes — the robot-relative orientation indicator, here on the 3D display.
+  const gyro = (state.gyroRad ?? 0);
+  const gyroR = Math.max(hx, hy) * 1.3;
+  const gdx = Math.cos(gyro) * gyroR, gdy = -Math.sin(gyro) * gyroR; // field +X in robot frame
+  const gyroRing = [];
+  for (let k = 0; k < 24; k++) {
+    const a0 = 2 * Math.PI * k / 24, a1 = 2 * Math.PI * (k + 1) / 24;
+    gyroRing.push([[gyroR * Math.cos(a0), gyroR * Math.sin(a0), 0],
+                   [gyroR * Math.cos(a1), gyroR * Math.sin(a1), 0]]);
+  }
+
+  // Auto-fit: project every point and fit the bounds into the canvas with a margin,
+  // so the view stays framed at any orbit angle and mechanism extension.
+  const pts = [...bottom, ...top].map(isoUV);
+  for (const w of wheels) { pts.push(isoUV(w[0])); pts.push(isoUV(w[1])); }
+  pts.push(isoUV([gdx, gdy, 0]));
+  for (let k = 0; k < gyroRing.length; k += 6) pts.push(isoUV(gyroRing[k][0]));
+  for (const m of mechs) {
+    for (const s of m.segments) { pts.push(isoUV(s.a)); pts.push(isoUV(s.b)); }
+  }
+  let uMin = 1e9, uMax = -1e9, vMin = 1e9, vMax = -1e9;
+  for (const [u, v] of pts) {
+    uMin = Math.min(uMin, u); uMax = Math.max(uMax, u);
+    vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
+  }
+  const M = 12; // margin px
+  const scale = Math.min((W - 2 * M) / Math.max(0.1, uMax - uMin),
+                         (H - 2 * M) / Math.max(0.1, vMax - vMin));
+  const offU = M + (W - 2 * M - (uMax - uMin) * scale) / 2;
+  const offV = M + (H - 2 * M - (vMax - vMin) * scale) / 2;
+  const px = p => {
+    const [u, v] = isoUV(p);
+    return [offU + (u - uMin) * scale, offV + (v - vMin) * scale];
+  };
+  const line = (a, b, color, width) => {
+    const [ax, ay] = px(a), [bx, by] = px(b);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+  };
+
+  // Chassis wireframe (dim) with a green front-edge marker for orientation.
+  for (let i = 0; i < 4; i++) {
+    line(bottom[i], bottom[(i + 1) % 4], '#3a3a3a', 1);
+    line(top[i],    top[(i + 1) % 4],    '#4f4f4f', 1);
+    line(bottom[i], top[i],              '#4f4f4f', 1);
+  }
+  line(top[0], top[1], '#3fb950', 1.5); // front edge (robot +X)
+
+  // Gyro compass (cyan): ring on the floor + needle toward field-forward.
+  for (const seg of gyroRing) line(seg[0], seg[1], 'rgba(34,211,238,0.35)', 1);
+  line([0, 0, 0], [gdx, gdy, 0], '#22d3ee', 2.5);
+
+  // Swerve wheels (light grey) — drawn on the floor at each module, steered live, with
+  // length growing as the wheel rolls faster.
+  for (const w of wheels) line(w[0], w[1], '#cdd9e5', 3);
+
+  // Mechanism segments, exactly as the robot published them this cycle.
+  for (const m of mechs) {
+    for (const s of m.segments) line(s.a, s.b, s.c, s.w);
   }
 }
 
@@ -889,6 +1057,15 @@ setInterval(async () => {
     flyingPieces = (d.flying  || []).map(p => ({ x: p[0], y: p[1] }));
   }).catch(() => {});
 
+  // Fetch mechanism 3D segments only while the panel is expanded — collapsing it stops
+  // this request (and the draw below) so a hidden panel costs nothing client or server.
+  if (mech3dExpanded) {
+    fetch('/api/mechanisms3d').then(r => r.json()).then(d => {
+      mech3d = d;
+      mech3dHasContent = ((d.mechanisms || []).length + (d.swerve || []).length) > 0;
+    }).catch(() => {});
+  }
+
   // POST drive command (fire-and-forget)
   fetch('/api/drive', {
     method: 'POST',
@@ -906,10 +1083,12 @@ setInterval(async () => {
     updateLeds();
     updateStatus(vx, vy, omega);
     drawField();
+    updateMech3d();
   } catch (e) {
     state.connected = false;
     updateStatus(0, 0, 0);
     drawField();
+    updateMech3d();
   }
 }, 50);
 

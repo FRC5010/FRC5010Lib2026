@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 
+import static edu.wpi.first.units.Units.Meters;
 import static edu.wpi.first.units.Units.MetersPerSecond;
 import static edu.wpi.first.units.Units.RadiansPerSecond;
 
@@ -49,8 +50,19 @@ public class WebDriveController {
     private final double maxLinearMps;
     private final double maxAngularRps;
 
-    // Written by robot thread, read by HTTP thread (state endpoint)
-    private final AtomicReference<double[]> poseBuf = new AtomicReference<>(new double[3]);
+    // Robot geometry for the 3D mechanism/robot view (immutable — read from constants).
+    private final double chassisLengthM;
+    private final double chassisWidthM;
+    private final double wheelRadiusM;
+    private final double[] moduleX; // robot-frame module positions, x forward
+    private final double[] moduleY; // robot-frame module positions, y left
+    // Live swerve module state for the 3D view: [angle0, speedFrac0, angle1, ...],
+    // snapshotted on the robot thread each cycle (speedFrac = signed speed ÷ max speed).
+    private final AtomicReference<double[]> swerveStateBuf = new AtomicReference<>(new double[0]);
+
+    // Written by robot thread, read by HTTP thread (state endpoint).
+    // Layout: [x, y, poseHeadingRad, gyroYawRad].
+    private final AtomicReference<double[]> poseBuf = new AtomicReference<>(new double[4]);
     private final AtomicBoolean enabledBuf = new AtomicBoolean(false);
     private final AtomicReference<String> allianceBuf = new AtomicReference<>("Blue");
 
@@ -99,6 +111,17 @@ public class WebDriveController {
         for (int i = 0; i < buttons.length; i++) {
             buttons[i] = new AtomicBoolean(false);
         }
+        var constants = drive.getConstants();
+        this.chassisLengthM = constants.bumperLength.in(Meters);
+        this.chassisWidthM  = constants.bumperWidth.in(Meters);
+        this.wheelRadiusM   = constants.wheelRadius.in(Meters);
+        var translations = constants.moduleTranslations;
+        this.moduleX = new double[translations.length];
+        this.moduleY = new double[translations.length];
+        for (int i = 0; i < translations.length; i++) {
+            moduleX[i] = translations[i].getX();
+            moduleY[i] = translations[i].getY();
+        }
     }
 
     /** Starts the HTTP server. Silently skips if the port is already bound. */
@@ -111,6 +134,7 @@ public class WebDriveController {
             server.createContext("/api/control",    this::handleControl);
             server.createContext("/api/autos",      this::handleAutos);
             server.createContext("/api/gamepieces", this::handleGamePieces);
+            server.createContext("/api/mechanisms3d", this::handleMechanisms3d);
             server.createContext("/api/stop",       this::handleStop);
             server.createContext("/tags/",          this::handleTagImage);
             server.createContext("/fuel.png",       this::handleFuelImage);
@@ -145,7 +169,19 @@ public class WebDriveController {
         // an autonomous (or any other) command owns the drive subsystem. Without this, the web
         // field freezes for the whole duration of an auto routine.
         Pose2d pose = drive.getPose();
-        poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians()});
+        poseBuf.set(new double[]{pose.getX(), pose.getY(), pose.getRotation().getRadians(),
+            drive.getGyroRotation().getRadians()});
+
+        // Snapshot the swerve module states (steer angle + normalized speed) for the 3D
+        // robot view — same rationale as the pose: read drive state on the robot thread,
+        // serve from the buffer on HTTP threads.
+        var states = drive.getModuleStates();
+        double[] swerve = new double[states.length * 2];
+        for (int i = 0; i < states.length; i++) {
+            swerve[2 * i] = states[i].angle.getRadians();
+            swerve[2 * i + 1] = clamp(states[i].speedMetersPerSecond / maxLinearMps);
+        }
+        swerveStateBuf.set(swerve);
 
         // Snapshot the LED colours every cycle for the same reason as the pose above:
         // this is the only per-cycle hook that runs in ALL robot states (gotcha 11).
@@ -328,6 +364,40 @@ public class WebDriveController {
         respond(ex, 200, "application/json", sb.toString());
     }
 
+    /**
+     * Returns the robot as 3D geometry for the isometric robot view: the chassis box
+     * (from the drivetrain's bumper dimensions), the swerve wheels (live steer angles),
+     * and every mechanism's line segments. The chassis/swerve come from robot-thread
+     * snapshots; the mechanism segments come from {@code MechanismVisuals3d}'s concurrent
+     * map — both safe to serialize here on the HTTP thread.
+     */
+    private void handleMechanisms3d(HttpExchange ex) throws IOException {
+        addCors(ex);
+        if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(204, -1); return; }
+        if (!"GET".equalsIgnoreCase(ex.getRequestMethod()))    { ex.sendResponseHeaders(405, -1); return; }
+        double[] swerve = swerveStateBuf.get();
+        StringBuilder sb = new StringBuilder(512);
+        sb.append("{\"chassis\":{\"length\":").append(fmt(chassisLengthM))
+          .append(",\"width\":").append(fmt(chassisWidthM))
+          .append(",\"height\":0.15,\"wheelRadius\":").append(fmt(wheelRadiusM))
+          .append("},\"swerve\":[");
+        int n = Math.min(swerve.length / 2, moduleX.length);
+        for (int i = 0; i < n; i++) {
+            if (i > 0) sb.append(',');
+            sb.append('[').append(fmt(moduleX[i])).append(',')
+              .append(fmt(moduleY[i])).append(',').append(fmt(swerve[2 * i]))
+              .append(',').append(fmt(swerve[2 * i + 1])).append(']');
+        }
+        sb.append("],\"mechanisms\":")
+          .append(org.frc5010.common.mechanisms.MechanismVisuals3d.mechanismsArrayJson())
+          .append('}');
+        respond(ex, 200, "application/json", sb.toString());
+    }
+
+    private static String fmt(double v) {
+        return String.format(java.util.Locale.ROOT, "%.4f", v);
+    }
+
     /** Serves the Fuel game-piece PNG ({@code /fuel.png}) from the classpath. */
     private void handleFuelImage(HttpExchange ex) throws IOException {
         addCors(ex);
@@ -364,14 +434,14 @@ public class WebDriveController {
         if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(204, -1); return; }
         double[] p  = poseBuf.get();
         String json = String.format(
-            "{\"x\":%.4f,\"y\":%.4f,\"headingRad\":%.4f," +
+            "{\"x\":%.4f,\"y\":%.4f,\"headingRad\":%.4f,\"gyroRad\":%.4f," +
             "\"maxLinear\":%.4f,\"maxAngular\":%.4f," +
             "\"fieldWidth\":16.540988,\"fieldHeight\":8.21," +
             "\"enabled\":%b,\"alliance\":\"%s\",\"connected\":%b," +
             "\"mode\":\"%s\",\"selectedAuto\":\"%s\"," +
             "\"heldFuel\":%d,\"intakeExtended\":%b,\"scoredFuel\":%d," +
             "\"leds\":%s}",
-            p[0], p[1], p[2], maxLinearMps, maxAngularRps,
+            p[0], p[1], p[2], p[3], maxLinearMps, maxAngularRps,
             enabledBuf.get(), allianceBuf.get(), isConnected(),
             modeBuf.get(), jsonEscape(selectedAutoBuf.get()),
             heldFuelSupplier.getAsInt(), intakeExtendedSupplier.getAsBoolean(), scoredFuelSupplier.getAsInt(),

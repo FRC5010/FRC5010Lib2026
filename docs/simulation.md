@@ -24,6 +24,11 @@ Uses `ExampleRobotProfile` with your robot's actual `SwerveConstants`. IronMaple
 ./gradlew simulateJava        # macOS / Linux / Codespaces
 ```
 
+The drivetrain also publishes a **`SwerveDrive` Mechanism2d** to SmartDashboard
+(`AkitSwerveDrive` → `SwerveVisuals2d`): a wheel arrow per module (live steer azimuth,
+length growing with drive speed) plus a centre gyro-heading needle, so Glass /
+Shuffleboard / AdvantageScope show the drivetrain state without the web UI.
+
 ### 3. Visual auto-test (`-PvisualTest`)
 
 Same as scenario 2, but `getAutonomousCommand()` returns the `SwerveVisualTest` sequence: the robot drives forward, strafes, rotates, verifies alliance-direction, and approaches the field boundary. Useful for a quick sanity check after changing constants.
@@ -37,7 +42,7 @@ Once Glass opens, find the **Driver Station** panel, set mode to **Autonomous**,
 
 ### 4. Browser web UI (`-PwebUI`)
 
-Opt-in browser-based UI on `http://localhost:5800` — field view, virtual gamepad, a Driver Station panel with alliance/enable controls, an **Auto/Teleop mode** toggle, an **auto-routine selector**, the `DemoIntake` demo, and a **live LED strip display** under the field (mirrors the robot's `LedStripSegments` colours via the `"leds"` array in `/api/state`; hidden when the robot has no strip — see [docs/leds.md](leds.md)). `-PwebUI` skips `wpi.sim.addGui()` / `addDriverstation()`, so **no Glass window opens**; the browser is the only UI.
+Opt-in browser-based UI on `http://localhost:5800` — field view, virtual gamepad, a Driver Station panel with alliance/enable controls, an **Auto/Teleop mode** toggle, an **auto-routine selector**, the `DemoIntake` demo, a **Mechanisms 3D** isometric panel (bottom-right of the field; live wireframe of the chassis, the swerve wheels (steered live, line length growing with drive speed), a cyan gyro-heading compass on the floor (`gyroRad` from `/api/state`), and every mechanism at its `visualPose3d` mount — drag to orbit, click the title to collapse it (which stops its poll/draw, handy on narrow screens); backed by `/api/mechanisms3d`; see [docs/mechanisms.md](mechanisms.md)), a held/scored counter panel in the top-right corner, and a **live LED strip display** under the field (mirrors the robot's `LedStripSegments` colours via the `"leds"` array in `/api/state`; hidden when the robot has no strip — see [docs/leds.md](leds.md)). `-PwebUI` skips `wpi.sim.addGui()` / `addDriverstation()`, so **no Glass window opens**; the browser is the only UI.
 
 ```powershell
 .\gradlew.bat simulateJava -PwebUI         # Windows

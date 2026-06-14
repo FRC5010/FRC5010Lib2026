@@ -5,18 +5,17 @@ import static edu.wpi.first.units.Units.Kilograms;
 import static edu.wpi.first.units.Units.Meters;
 
 import edu.wpi.first.math.system.plant.DCMotor;
-import org.frc5010.common.mechanisms.MechanismMotor;
-import org.frc5010.common.mechanisms.YamsDoubleJointedArm;
+import org.frc5010.common.mechanisms.DoubleJointedArm;
 
 /**
  * Example double-jointed arm: two Kraken X60s on TalonFXs (CAN 25 shoulder, CAN 26
  * elbow), 60:1 per joint, 0.6 m / 2.5 kg lower segment and 0.5 m / 1.5 kg upper segment.
  *
- * <p>Per-joint profiled PID (the YAMS LQR does not model coupled two-joint dynamics).
+ * <p>Per-joint profiled PID (the single-DOF LQR plants do not model coupled two-joint dynamics).
  * Robot-specific numbers live here; control logic is in the common
- * {@link YamsDoubleJointedArm}.
+ * {@link DoubleJointedArm}.
  */
-public class ExampleDoubleJointedArm extends YamsDoubleJointedArm {
+public class ExampleDoubleJointedArm extends DoubleJointedArm {
 
   /** CAN ID of the shoulder (lower joint) TalonFX. */
   public static final int LOWER_CAN_ID = 25;
@@ -30,8 +29,10 @@ public class ExampleDoubleJointedArm extends YamsDoubleJointedArm {
   private static Settings settings() {
     var s = new Settings();
     s.name = "ExampleDJArm";
-    s.vendor = MechanismMotor.Vendor.TALON_FX;
     s.motorModel = DCMotor.getKrakenX60(1);
+    s.visualPosition = new edu.wpi.first.math.geometry.Translation2d(0.9, 1.5); // spot on the RobotMechanisms overlay
+    s.visualPose3d = new edu.wpi.first.math.geometry.Pose3d(-0.25, -0.25, 0.3,
+        edu.wpi.first.math.geometry.Rotation3d.kZero); // back-right corner, 3D view
 
     s.lowerJoint.canId = LOWER_CAN_ID;
     s.lowerJoint.gearReductionStages = new double[] {3, 4, 5}; // 60:1
