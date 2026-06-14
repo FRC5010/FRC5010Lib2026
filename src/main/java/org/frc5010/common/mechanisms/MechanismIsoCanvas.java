@@ -32,14 +32,14 @@ import org.frc5010.common.mechanisms.MechanismVisuals3d.Segment;
 final class MechanismIsoCanvas {
 
   /** Canvas width, meters. */
-  static final double WIDTH = 4.5;
-  /** Canvas height, meters. */
-  static final double HEIGHT = 3.5;
+  static final double WIDTH = 4.0;
+  /** Canvas height, meters — kept short so Glass scales the scene up to fill the widget. */
+  static final double HEIGHT = 2.6;
 
   private static final double COS30 = Math.cos(Math.PI / 6);
   private static final double SIN30 = Math.sin(Math.PI / 6);
-  private static final double SCALE = 0.9;
-  private static final double ORIGIN_X = 2.0;
+  private static final double SCALE = 0.8;
+  private static final double ORIGIN_X = 1.8;
   private static final double ORIGIN_Y = 0.3;
 
   private record Slot(MechanismRoot2d root, MechanismLigament2d ligament) {}

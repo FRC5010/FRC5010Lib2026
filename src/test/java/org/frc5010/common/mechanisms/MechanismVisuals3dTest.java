@@ -36,7 +36,6 @@ class MechanismVisuals3dTest extends SimTestBase {
   @Override
   public void simTeardown() {
     MechanismVisuals3d.resetForTesting();
-    MechanismVisuals.resetForTesting();
     RobotMode.resetForTesting();
     super.simTeardown();
   }

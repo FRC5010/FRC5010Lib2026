@@ -65,19 +65,6 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
     public Mass mass = Kilograms.of(1.5);
 
     /**
-     * Canvas to draw this mechanism on. Null (default) = the shared robot-overlay
-     * canvas (SmartDashboard -> RobotMechanisms); pass your own Mechanism2d to split
-     * mechanisms onto separate widgets (you publish custom canvases yourself).
-     */
-    public edu.wpi.first.wpilibj.smartdashboard.Mechanism2d mechanism2d = null;
-    /**
-     * Where this mechanism's root sits on the canvas, meters — x along the robot's
-     * length, y above the floor (side view). Lets the overlay reflect the real robot
-     * layout.
-     */
-    public edu.wpi.first.math.geometry.Translation2d visualPosition =
-        new edu.wpi.first.math.geometry.Translation2d(2.6, 1.8);
-    /**
      * Where this mechanism sits on the robot for the 3D isometric view — robot frame,
      * x forward, y left, z up, meters from robot center at floor level. The rotation
      * re-aims the wheel plane: identity (default) spins it in the robot's X-Z
@@ -165,7 +152,6 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
   private double goalRadPerSec;
   private boolean wasEnabled = false;
   private final edu.wpi.first.wpilibj.Alert disconnectedAlert;
-  private final edu.wpi.first.wpilibj.smartdashboard.MechanismLigament2d wheelLigament;
 
   /**
    * Builds the flywheel subsystem, its IO (per {@link RobotMode}), controller, and sim.
@@ -223,11 +209,6 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
 
     disconnectedAlert = new edu.wpi.first.wpilibj.Alert(
         settings.name + " TalonFX disconnected", edu.wpi.first.wpilibj.Alert.AlertType.kError);
-    var canvas = MechanismVisuals.canvasFor(settings.mechanism2d);
-    wheelLigament = canvas.getRoot(settings.name + "Root",
-            settings.visualPosition.getX(), settings.visualPosition.getY())
-        .append(new edu.wpi.first.wpilibj.smartdashboard.MechanismLigament2d(
-            "wheel", settings.diameter.in(Meters) / 2, 0));
   }
 
   private double moiKgM2() {
@@ -334,7 +315,6 @@ public class Flywheel extends SubsystemBase implements AutoCloseable {
 
     Logger.recordOutput(settings.name + "/GoalRPM",
         RadiansPerSecond.of(mode == OutputMode.GOAL ? goalRadPerSec : getVelocityRadPerSec()).in(RPM));
-    wheelLigament.setAngle(inputs.positionRot * 360.0); // spins with the wheel
 
     var mount = MechanismVisuals3d.resolveMount(
         settings.visualPose3d, settings.visualParent, settings.visualParentOffset);

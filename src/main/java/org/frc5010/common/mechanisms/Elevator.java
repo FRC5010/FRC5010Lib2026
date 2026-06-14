@@ -15,7 +15,6 @@ import edu.wpi.first.math.filter.Debouncer;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
-import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
@@ -26,10 +25,6 @@ import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.units.measure.Mass;
 import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.simulation.ElevatorSim;
-import edu.wpi.first.wpilibj.smartdashboard.Mechanism2d;
-import edu.wpi.first.wpilibj.smartdashboard.MechanismLigament2d;
-import edu.wpi.first.wpilibj.util.Color;
-import edu.wpi.first.wpilibj.util.Color8Bit;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
@@ -103,18 +98,6 @@ public class Elevator extends SingleDofMechanism {
     /** Drop the goal when the robot is disabled (stay put on re-enable). */
     public boolean clearGoalOnDisable = false;
 
-    /**
-     * Canvas to draw this mechanism on. Null (default) = the shared robot-overlay
-     * canvas (SmartDashboard -> RobotMechanisms); pass your own Mechanism2d to split
-     * mechanisms onto separate widgets (you publish custom canvases yourself).
-     */
-    public Mechanism2d mechanism2d = null;
-    /**
-     * Where this mechanism's root sits on the canvas, meters — x along the robot's
-     * length, y above the floor (side view). Lets the overlay reflect the real robot
-     * layout.
-     */
-    public Translation2d visualPosition = new Translation2d(0.5, 0.0);
     /**
      * Where this mechanism sits on the robot for the 3D isometric view — robot frame,
      * x forward, y left, z up, meters from robot center at floor level. The rotation
@@ -194,8 +177,6 @@ public class Elevator extends SingleDofMechanism {
   private final Settings settings;
   private final double metersPerRot;
   private final SysIdRoutine sysIdRoutine;
-  private final MechanismLigament2d carriageLigament;
-  private final MechanismLigament2d goalLigament;
 
   /**
    * Builds the elevator subsystem, its IO (per {@link RobotMode}), controller, and sim.
@@ -216,15 +197,6 @@ public class Elevator extends SingleDofMechanism {
                 .linearPosition(Meters.of(positionNative()))
                 .linearVelocity(MetersPerSecond.of(velocityNative())),
             this));
-
-    Mechanism2d canvas = MechanismVisuals.canvasFor(settings.mechanism2d);
-    double rootX = settings.visualPosition.getX();
-    double rootY = settings.visualPosition.getY();
-    carriageLigament = canvas.getRoot(settings.name + "Root", rootX, rootY)
-        .append(new MechanismLigament2d("carriage", settings.startingHeight.in(Meters), 90));
-    goalLigament = canvas.getRoot(settings.name + "GoalRoot", rootX + 0.06, rootY)
-        .append(new MechanismLigament2d("goal", settings.startingHeight.in(Meters), 90, 3,
-            new Color8Bit(Color.kWhite)));
   }
 
   private static BaseParams baseParams(Settings settings) {
@@ -341,8 +313,6 @@ public class Elevator extends SingleDofMechanism {
   protected void updateVisualization() {
     double height = Math.max(0.02, positionNative());
     double goal = Math.max(0.02, mode == OutputMode.GOAL ? goalNative : positionNative());
-    carriageLigament.setLength(height);
-    goalLigament.setLength(goal);
 
     Pose3d mount = MechanismVisuals3d.resolveMount(
         settings.visualPose3d, settings.visualParent, settings.visualParentOffset);

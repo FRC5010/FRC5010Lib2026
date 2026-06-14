@@ -61,7 +61,6 @@ import static edu.wpi.first.units.Units.Second;
 public class AkitSwerveDrive extends SubsystemBase {
 
   private final SwerveConstants constants;
-  private final SwerveVisuals2d swerveVisuals;
   private final GyroIO gyroIO;
   private final GyroIOInputsAutoLogged gyroInputs = new GyroIOInputsAutoLogged();
   private final Module[] modules = new Module[4]; // FL, FR, BL, BR
@@ -153,10 +152,6 @@ public class AkitSwerveDrive extends SubsystemBase {
       }
     }
 
-    swerveVisuals = new SwerveVisuals2d(
-        "SwerveDrive", constants.moduleTranslations,
-        constants.maxLinearSpeed.in(Units.MetersPerSecond));
-
     HAL.report(tResourceType.kResourceType_RobotDrive, tInstances.kRobotDriveSwerve_AdvantageKit);
 
     // Start the odometry thread. The instance is null in SIM/REPLAY modes since
@@ -231,9 +226,6 @@ public class AkitSwerveDrive extends SubsystemBase {
         swerveDriveSimulation != null
             ? swerveDriveSimulation.getSimulatedDriveTrainPose()
             : getPose());
-
-    // Mechanism2d drivetrain view (wheel arrows + gyro needle) for Glass / dashboards.
-    swerveVisuals.update(getModuleStates(), getGyroRotation());
 
     // Unified isometric robot view (chassis + wheels + gyro + mechanisms) on the same
     // RobotMechanisms3D canvas the mechanisms publish to — equivalent to the web panel.
