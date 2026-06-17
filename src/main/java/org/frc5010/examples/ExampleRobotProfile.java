@@ -93,6 +93,11 @@ public class ExampleRobotProfile extends RobotProfile {
   private static final Transform3d FRONT_CAM_TRANSFORM = new Transform3d(
       new Translation3d(0.30, 0.0, 0.50), new Rotation3d());
 
+  // Robot → Quest headset mounting transform: 20 cm back of center, 80 cm up, facing forward.
+  // TODO: Replace with this robot's actual Quest mounting position.
+  private static final Transform3d ROBOT_TO_QUEST = new Transform3d(
+      new Translation3d(-0.20, 0.0, 0.80), new Rotation3d());
+
   /**
    * Wires the {@code photon_front} PhotonVision camera and publishes static AprilTag poses to
    * the drive's Field2d so Glass renders AT*.png overlays for each tag.
@@ -113,6 +118,12 @@ public class ExampleRobotProfile extends RobotProfile {
             new CameraConfig.Builder("photon_front")
                 .robotToCamera(FRONT_CAM_TRANSFORM)
                 .backend(CameraConfig.Backend.PHOTON)
+                .build(),
+            // QuestNav headset as a field-relative pose source. robotToCamera is the
+            // robot → Quest mounting transform; no Quest exists in SIM (no-op there).
+            new CameraConfig.Builder("QuestNav")
+                .robotToCamera(ROBOT_TO_QUEST)
+                .backend(CameraConfig.Backend.QUESTNAV)
                 .build()
         });
 

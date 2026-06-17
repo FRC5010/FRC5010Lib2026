@@ -8,6 +8,14 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+// QuestNav's questnavlib is published to the local Maven repository during development
+// (./gradlew publishToMavenLocal in the questnav-lib project). The vendordep's remote
+// mavenUrls (maven.questnav.gg) only host tagged releases, so mavenLocal is required to
+// resolve a locally-built -dev build.
+repositories {
+    mavenLocal()
+}
+
 def ROBOT_MAIN_CLASS = "frc.robot.Main"
 
 // Define my targets (RoboRIO) and artifacts (deployable files)

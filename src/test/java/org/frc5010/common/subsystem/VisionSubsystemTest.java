@@ -237,6 +237,63 @@ class VisionSubsystemTest extends SimTestBase {
         "MegaTag 2 angular std dev should be orders of magnitude higher than PhotonVision");
   }
 
+  @Test
+  void questNavObservationIsAcceptedDespiteZeroTags() {
+    // QuestNav reports a full field-relative pose with no AprilTags. The tag-count gate that
+    // rejects ordinary cameras must NOT apply to QUESTNAV observations.
+    List<Matrix<N3, N1>> stdDevs = new ArrayList<>();
+    Vision vision = new Vision(
+        (pose, ts, s) -> { acceptedPoses.add(pose); stdDevs.add(s); },
+        LAYOUT, new CameraConfig[]{cfg},
+        new VisionIO() {
+          @Override public void updateInputs(VisionIOInputs inputs) {
+            inputs.connected               = true;
+            inputs.observationTimestamps   = new double[] {1.0};
+            inputs.observationPoses        = new Pose3d[]  {VALID_POSE};
+            inputs.observationAmbiguities  = new double[] {0.0};
+            inputs.observationTagCounts    = new int[]    {0};   // VIO source — no tags
+            inputs.observationTagDistances = new double[] {0.0};
+            inputs.observationTypes        = new int[]    {PoseObservationType.QUESTNAV.ordinal()};
+            inputs.tagIds                  = new int[]    {};
+          }
+        });
+
+    vision.periodic();
+    stepOneCycle();
+
+    assertEquals(1, acceptedPoses.size(), "QuestNav pose should be accepted despite zero tags");
+    assertEquals(VALID_POSE.getX(), acceptedPoses.get(0).getX(), 1e-6);
+    // Fixed model: finite, small linear and angular std devs (not the MegaTag-2 1e6 angular).
+    assertTrue(stdDevs.get(0).get(0, 0) > 0.0 && stdDevs.get(0).get(0, 0) < 1.0,
+        "QuestNav linear std dev should be small and finite");
+    assertTrue(stdDevs.get(0).get(2, 0) > 0.0 && stdDevs.get(0).get(2, 0) < 1.0,
+        "QuestNav angular std dev should be small and finite");
+  }
+
+  @Test
+  void questNavOutOfFieldPoseIsStillRejected() {
+    // Field-bounds and Z-error checks DO still apply to QuestNav.
+    Pose3d outsidePose = new Pose3d(-1.0, 3.0, 0.0, new Rotation3d()); // X < 0
+
+    Vision vision = buildWith(new VisionIO() {
+      @Override public void updateInputs(VisionIOInputs inputs) {
+        inputs.connected               = true;
+        inputs.observationTimestamps   = new double[] {1.0};
+        inputs.observationPoses        = new Pose3d[]  {outsidePose};
+        inputs.observationAmbiguities  = new double[] {0.0};
+        inputs.observationTagCounts    = new int[]    {0};
+        inputs.observationTagDistances = new double[] {0.0};
+        inputs.observationTypes        = new int[]    {PoseObservationType.QUESTNAV.ordinal()};
+        inputs.tagIds                  = new int[]    {};
+      }
+    });
+
+    vision.periodic();
+    stepOneCycle();
+
+    assertTrue(acceptedPoses.isEmpty(), "Out-of-field QuestNav pose should still be rejected");
+  }
+
   // ---------------------------------------------------------------------------
   // Helper
   // ---------------------------------------------------------------------------
