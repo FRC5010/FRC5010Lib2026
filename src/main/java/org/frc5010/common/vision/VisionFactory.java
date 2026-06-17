@@ -62,11 +62,15 @@ public final class VisionFactory {
         case REAL -> switch (cfg.backend) {
           case PHOTON   -> new VisionIOPhoton(cfg, layout);
           case LIMELIGHT -> new VisionIOLimelight(cfg, headingSupplier);
+          // QuestNav is a NetworkTables source — seed its field frame from the robot pose.
+          case QUESTNAV -> new VisionIOQuestNav(cfg, poseSupplier);
         };
         case SIM -> switch (cfg.backend) {
           case PHOTON    -> new VisionIOSim(cfg, layout, poseSupplier);
           // Limelight has no PhotonVision sim equivalent — use no-op; logs will show no tags.
           case LIMELIGHT -> new VisionIO() {};
+          // No Quest headset in simulation — use no-op; logs will show no QuestNav poses.
+          case QUESTNAV -> new VisionIO() {};
         };
         // REPLAY: no-op — AKit replays logged inputs automatically.
         case REPLAY -> new VisionIO() {};

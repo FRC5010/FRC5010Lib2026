@@ -22,7 +22,13 @@ public final class CameraConfig {
     /** PhotonVision — uses {@code PhotonCamera} and multi-tag PnP. */
     PHOTON,
     /** Limelight — uses YALL; MegaTag 1 and MegaTag 2 supported. */
-    LIMELIGHT
+    LIMELIGHT,
+    /**
+     * QuestNav — a Meta Quest headset running the QuestNav app, providing full field-relative
+     * visual-inertial odometry. {@link CameraConfig#robotToCamera} is interpreted as the
+     * robot &rarr; Quest mounting transform.
+     */
+    QUESTNAV
   }
 
   /** Camera or Limelight NT table name as configured in their dashboards. */

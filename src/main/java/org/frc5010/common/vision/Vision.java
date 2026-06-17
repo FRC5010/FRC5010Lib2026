@@ -44,6 +44,13 @@ public class Vision extends SubsystemBase {
   private static final double MEGATAG2_LINEAR_FACTOR = 0.5;
   /** MegaTag 2 angular std dev multiplier (heading locked → nearly infinite angular std dev). */
   private static final double MEGATAG2_ANGULAR_FACTOR = 1e6;
+  /**
+   * Fixed linear std dev (m) for QuestNav observations. The Quest's visual-inertial odometry is
+   * smooth and locally very accurate, so it is trusted heavily and independent of tag distance.
+   */
+  private static final double QUESTNAV_LINEAR_STD_DEV = 0.02;
+  /** Fixed angular std dev (rad) for QuestNav observations (full 6-DoF heading is reported). */
+  private static final double QUESTNAV_ANGULAR_STD_DEV = 0.035;
 
   // ── Fields ──────────────────────────────────────────────────────────────────
   private final VisionConsumer consumer;
@@ -130,9 +137,12 @@ public class Vision extends SubsystemBase {
         VisionIO.PoseObservationType type =
             VisionIO.PoseObservationType.values()[inputs[ci].observationTypes[oi]];
 
+        // QuestNav is a tag-less VIO source, so tag-count / ambiguity checks do not apply.
+        boolean isQuestNav = type == VisionIO.PoseObservationType.QUESTNAV;
+
         boolean reject =
-            tagCount == 0
-                || (tagCount == 1 && ambiguity > MAX_AMBIGUITY)
+            (!isQuestNav
+                    && (tagCount == 0 || (tagCount == 1 && ambiguity > MAX_AMBIGUITY)))
                 || Math.abs(pose.getZ()) > MAX_Z_ERROR_METERS
                 || pose.getX() < 0.0
                 || pose.getX() > fieldLayout.getFieldLength()
@@ -144,14 +154,22 @@ public class Vision extends SubsystemBase {
 
         if (reject) continue;
 
-        // Compute std devs: scale with distance² / tagCount.
-        double factor = Math.pow(tagDist, 2.0) / tagCount * stdDevFactors[ci];
-        double linStdDev = LINEAR_STD_DEV_BASE * factor;
-        double angStdDev = ANGULAR_STD_DEV_BASE * factor;
+        double linStdDev;
+        double angStdDev;
+        if (isQuestNav) {
+          // Fixed model — QuestNav trust is independent of AprilTag distance/count.
+          linStdDev = QUESTNAV_LINEAR_STD_DEV * stdDevFactors[ci];
+          angStdDev = QUESTNAV_ANGULAR_STD_DEV * stdDevFactors[ci];
+        } else {
+          // Compute std devs: scale with distance² / tagCount.
+          double factor = Math.pow(tagDist, 2.0) / tagCount * stdDevFactors[ci];
+          linStdDev = LINEAR_STD_DEV_BASE * factor;
+          angStdDev = ANGULAR_STD_DEV_BASE * factor;
 
-        if (type == VisionIO.PoseObservationType.MEGATAG_2) {
-          linStdDev *= MEGATAG2_LINEAR_FACTOR;
-          angStdDev *= MEGATAG2_ANGULAR_FACTOR;
+          if (type == VisionIO.PoseObservationType.MEGATAG_2) {
+            linStdDev *= MEGATAG2_LINEAR_FACTOR;
+            angStdDev *= MEGATAG2_ANGULAR_FACTOR;
+          }
         }
 
         consumer.accept(

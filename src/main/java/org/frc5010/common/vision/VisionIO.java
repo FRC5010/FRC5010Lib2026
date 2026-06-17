@@ -43,7 +43,9 @@ public interface VisionIO {
   enum PoseObservationType {
     MEGATAG_1,
     MEGATAG_2,
-    PHOTONVISION
+    PHOTONVISION,
+    /** Full field-relative pose from a Quest headset (QuestNav VIO) — no AprilTags involved. */
+    QUESTNAV
   }
 
   default void updateInputs(VisionIOInputs inputs) {}
